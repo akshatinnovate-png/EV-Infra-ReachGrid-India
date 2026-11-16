@@ -68,37 +68,47 @@ jobs:
       - name: Silent install
         working-directory: desktop
         run: |
-          $p = Start-Process -FilePath "dist\ReachGrid-India-Setup.exe" -ArgumentList "/S" -PassThru
-          if (-not $p.WaitForExit(300000)) { throw "installer timed out" }
-          Start-Sleep -Seconds 3
-          $exe = "$env:LOCALAPPDATA\Programs\ReachGrid India\ReachGrid India.exe"
-          if (-not (Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 1 | Select-Object FullName; throw "installed exe not found at $exe" }
-          $startMenu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ReachGrid India.lnk"
-          $desktop = [Environment]::GetFolderPath("Desktop") + "\ReachGrid India.lnk"
-          if (-not (Test-Path $startMenu)) { throw "Start menu shortcut missing" }
-          if (-not (Test-Path $desktop)) { throw "Desktop shortcut missing" }
-          Write-Host "Installed: $exe"; Write-Host "Shortcuts OK"
+          Start-Process -FilePath "dist\ReachGrid-India-Setup.exe" -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 5
+          # find the install through the uninstall record the installer writes (no guessing of paths)
+          $key = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall", "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+            Get-ItemProperty | Where-Object { $_.DisplayName -like "ReachGrid India*" } | Select-Object -First 1
+          if (-not $key) { throw "no uninstall registry entry for ReachGrid India: installer did not complete" }
+          $key | Format-List DisplayName, DisplayVersion, Publisher, InstallLocation, UninstallString
+          $dir = $key.InstallLocation.Trim('"')
+          $exe = Join-Path $dir "ReachGrid India.exe"
+          if (-not (Test-Path $exe)) { Get-ChildItem $dir | Select-Object Name; throw "installed exe not found at $exe" }
+          $uninst = ($key.UninstallString -replace '^"([^"]+)".*$', '$1')
+          if (-not (Test-Path $uninst)) { throw "uninstaller not found at $uninst" }
+          $startMenu = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Recurse -Filter "ReachGrid India.lnk" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $desktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "ReachGrid India.lnk"
+          if (-not $startMenu) { throw "Start menu shortcut missing" }
+          if (-not (Test-Path $desktopLnk)) { throw "Desktop shortcut missing" }
+          Write-Host "Installed: $exe"; Write-Host "Start menu: $($startMenu.FullName)"; Write-Host "Desktop: $desktopLnk"
           (Get-Item $exe).VersionInfo | Format-List ProductName, FileVersion, CompanyName
+          "RG_EXE=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RG_UNINST=$uninst" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Smoke test (installed app)
         run: |
           $env:REACHGRID_USER_DIR = "$env:RUNNER_TEMP\rg-installed"
           $out = "$env:RUNNER_TEMP\smoke-installed.json"
-          $p = Start-Process -FilePath "$env:LOCALAPPDATA\Programs\ReachGrid India\ReachGrid India.exe" -ArgumentList "--smoke-test=$out" -PassThru
+          $p = Start-Process -FilePath $env:RG_EXE -ArgumentList "--smoke-test=$out" -PassThru
           if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force; throw "installed smoke test timed out" }
           Get-Content $out
           $r = Get-Content $out | ConvertFrom-Json
+          $r.results | Where-Object { -not $_.pass } | ForEach-Object { Write-Host "::error::FAILED $($_.name): $($_.detail)" }
           if ($p.ExitCode -ne 0 -or -not $r.pass) { throw "installed smoke test failed" }
           if (-not $r.packaged) { throw "expected a packaged app" }
           Write-Host "$(@($r.results).Count) checks passed on the installed app"
 
       - name: Silent uninstall
         run: |
-          $u = "$env:LOCALAPPDATA\Programs\ReachGrid India\Uninstall ReachGrid India.exe"
-          $p = Start-Process -FilePath $u -ArgumentList "/S" -PassThru
-          if (-not $p.WaitForExit(300000)) { throw "uninstaller timed out" }
-          Start-Sleep -Seconds 5
-          if (Test-Path "$env:LOCALAPPDATA\Programs\ReachGrid India\ReachGrid India.exe") { throw "app still present after uninstall" }
+          Start-Process -FilePath $env:RG_UNINST -ArgumentList "/S" -Wait
+          Start-Sleep -Seconds 8
+          if (Test-Path $env:RG_EXE) { throw "app still present after uninstall" }
+          $left = Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Get-ItemProperty | Where-Object { $_.DisplayName -like "ReachGrid India*" }
+          if ($left) { throw "uninstall registry entry still present" }
           Write-Host "Uninstall OK"
 
       - name: Upload build artifacts
@@ -128,7 +138,7 @@ jobs:
 
           Verified on Windows by the build pipeline: $(@($smoke.results).Count) checks passed on the installed app (workspace, every tab, background jobs, local API with key enforcement, role enforcement, audit chain, PDF export, corridor routing, tiles, data update), plus silent install, shortcuts and uninstall.
 
-          Data build: $(Select-String -Path data/india.js -Pattern 'data build ([\w.-]+)' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+          Data build: $(Select-String -Path data/india.js -Pattern 'data build (\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)' | ForEach-Object { $_.Matches[0].Groups[1].Value })
           Commit: $env:GITHUB_SHA
           "@
           $notes | Out-File notes.md -Encoding utf8

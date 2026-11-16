@@ -142,10 +142,10 @@ function createServer({ appDir, userDir, gov, log = () => {} }) {
 
   /* ---------- data updates from the published repository ---------- */
   const DATA_BASE = "https://raw.githubusercontent.com/akshatinnovate-png/EV-Infra-ReachGrid-India/main/";
-  function currentBuild() { try { const t = readApp("data/india.js", "utf8"); return (t.match(/data build ([\w.-]+)/) || [])[1] || null; } catch { return null; } }
+  function currentBuild() { try { const t = readApp("data/india.js", "utf8"); return (t.match(/data build (\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)/) || [])[1] || null; } catch { return null; } }
   async function checkDataUpdate() {
     const head = (await fetchBuf(DATA_BASE + "data/changes.js", { timeout: 20000 })).toString("utf8");
-    const remote = (head.match(/data build ([\w.-]+)/) || [])[1] || null;
+    const remote = (head.match(/data build (\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)/) || [])[1] || null;
     return { current: currentBuild(), remote, available: !!remote && remote !== currentBuild() };
   }
   async function applyDataUpdate(onProgress) {
