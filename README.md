@@ -47,7 +47,7 @@ inside a district (38 coastal points snap to the nearest one). 494 districts map
 
 **Launch workspace** (or any link with `?app=1`) opens a full-viewport planning app: a toolbar with breadcrumbs and global search,
 a docked navigator and inspector you can resize by dragging (double-click a divider to reset), the map in the middle,
-the legend and assistant floating over the map, and a status bar showing scope, coverage, cursor coordinates, data build and IST clock.
+the legend and assistant floating over the map (drag them by their title bar, minimise with _, double-click the title to snap back), and a status bar showing scope, coverage, cursor coordinates, data build and IST clock.
 Panel layout and sizes are remembered. On phones the panels stack under the map.
 
 | Key | Action |

@@ -931,7 +931,50 @@
       else if (/^[1-5]$/.test(k) && S.level !== "india" && S.mode !== "corridor") { S.tab = ["overview", "plan", "sens", "chargers", "ledger"][+k - 1]; renderInspector(); }
     });
     map.on("mousemove", e => { $("#sb-cursor").textContent = `${e.latlng.lat.toFixed(4)}°N ${e.latlng.lng.toFixed(4)}°E · z${map.getZoom().toFixed(1)}`; });
+    initFloating();
     syncToolbar();
+  }
+
+  /* draggable, minimisable overlays (assistant, legend) inside the map area */
+  function initFloating() {
+    const narrow = () => matchMedia("(max-width: 900px)").matches;
+    [["#w-ask", "ask"], ["#w-legend", "legend"]].forEach(([sel, key]) => {
+      const w = $(sel), tb = $(".tb", w), area = $("#map");
+      w.classList.add("floating");
+      const saved = store.get("float_" + key, null);
+      const minDefault = key === "ask" && !store.get("ask_opened", false);
+      if (store.get("float_min_" + key, minDefault)) w.classList.add("min");
+      const place = (x, y) => {
+        const a = area.getBoundingClientRect(), r = w.getBoundingClientRect();
+        x = Math.max(0, Math.min(a.width - Math.min(r.width, a.width), x));
+        y = Math.max(0, Math.min(a.height - 32, y));
+        Object.assign(w.style, { left: x + "px", top: y + "px", right: "auto", bottom: "auto" });
+        return { x, y };
+      };
+      const reset = () => { ["left", "top", "right", "bottom"].forEach(k => w.style.removeProperty(k)); store.set("float_" + key, null); };
+      if (saved && !narrow()) requestAnimationFrame(() => place(saved.x, saved.y));
+      $("[data-min]", w).addEventListener("click", () => {
+        store.set("float_min_" + key, w.classList.contains("min"));
+        if (key === "ask") store.set("ask_opened", true);
+        if (!narrow() && w.style.top) requestAnimationFrame(() => { const a = area.getBoundingClientRect(), r = w.getBoundingClientRect(); place(r.left - a.left, r.top - a.top); });
+      });
+      tb.addEventListener("dblclick", (e) => { if (!e.target.closest("button") && isApp()) reset(); });
+      tb.addEventListener("pointerdown", (e) => {
+        if (!isApp() || narrow() || e.target.closest("button")) return;
+        e.preventDefault();
+        const a = area.getBoundingClientRect(), r = w.getBoundingClientRect();
+        const ox = e.clientX - r.left, oy = e.clientY - r.top;
+        tb.setPointerCapture(e.pointerId); w.classList.add("drag");
+        let last = null;
+        const mv = (ev) => { last = place(ev.clientX - a.left - ox, ev.clientY - a.top - oy); };
+        const up = () => { w.classList.remove("drag"); tb.removeEventListener("pointermove", mv); tb.removeEventListener("pointerup", up); if (last) store.set("float_" + key, last); };
+        tb.addEventListener("pointermove", mv); tb.addEventListener("pointerup", up);
+      });
+      // keep it inside the map when the window or panels resize
+      addEventListener("resize", debounce(() => { if (w.style.top && !narrow()) { const a = area.getBoundingClientRect(), r = w.getBoundingClientRect(); place(r.left - a.left, r.top - a.top); } }, 120));
+    });
+    // opening the assistant from the toolbar or "A" also expands it
+    $("#ab-ask").addEventListener("click", () => { if (!document.body.classList.contains("no-ask")) { $("#w-ask").classList.remove("min"); store.set("float_min_ask", false); store.set("ask_opened", true); } });
   }
 
   /* ------------------------------------------------------------------ assistant */
