@@ -13,7 +13,18 @@
   const people = (n) => n == null ? "—" : n >= 1e7 ? (n / 1e7).toFixed(2) + " cr" : n >= 1e5 ? (n / 1e5).toFixed(1) + " L" : nIN(n);
   const rupL = (l) => l == null || !isFinite(l) ? "—" : l >= 100 ? "₹" + (l / 100).toFixed(2) + " cr" : "₹" + nIN(l, l < 10 ? 1 : 0) + " L";
   const rup = (r) => r == null || !isFinite(r) ? "—" : "₹" + nIN(r);
-  const store = { get(k, d) { try { const v = localStorage.getItem("rg_" + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem("rg_" + k, JSON.stringify(v)); } catch { } } };
+  const DESK = window.RGDesktop || null;
+  const WS_KEYS = new Set(["evidence", "portfolio", "review", "scenarios", "ev_upload", "use_cal", "portfolio_counts", "fcfg"]);
+  const store = {
+    get(k, d) {
+      if (DESK && WS_KEYS.has(k)) { const v = DESK.storeGet(k); return v == null ? d : v; }
+      try { const v = localStorage.getItem("rg_" + k); return v == null ? d : JSON.parse(v); } catch { return d; }
+    },
+    set(k, v) {
+      if (DESK && WS_KEYS.has(k)) { const r = DESK.storeSet(k, v); if (!r || !r.ok) { setTimeout(() => toast((r && r.error) || "Not allowed"), 0); return false; } return true; }
+      try { localStorage.setItem("rg_" + k, JSON.stringify(v)); } catch { } return true;
+    },
+  };
   const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
   const fnv = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16).padStart(8, "0"); };
 
@@ -64,6 +75,7 @@
   function setBoot(p, step) { const v = Math.round(p * 100); bootBar.style.width = v + "%"; bootPct.textContent = v + "%"; if (step) bootStep.textContent = step; }
   async function boot() {
     try {
+      if (DESK) await desktopSignIn();
       setBoot(0.04, "Boundaries, census, chargers");
       await loadScript("data/india.js", p => setBoot(0.04 + p * 0.6));
       setBoot(0.66, "Highway graph");
@@ -82,8 +94,10 @@
       else goIndia({ instant: true });
       setTimeout(() => map.invalidateSize(), 50);
       if (qs.has("tour")) setTimeout(tourStart, 600);
+      if (DESK) initDesktop();
+      window.RGApp = { ready: true, goDistrict, goState, goIndia, state: S, selfTest: desktopSelfTest };
     } catch (e) {
-      bootStep.textContent = "Failed: " + e.message + ". Serve the folder over http (see README).";
+      bootStep.textContent = "Failed: " + e.message + (DESK ? "" : ". Serve the folder over http (see README).");
       console.error(e);
     }
   }
@@ -120,7 +134,7 @@
   function initMap() {
     map = L.map("map", { zoomSnap: 0.25, zoomDelta: 0.5, minZoom: 3.5, maxZoom: 17, worldCopyJump: false, attributionControl: true });
     canvasR = L.canvas({ padding: 0.4 });
-    tiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' });
+    tiles = L.tileLayer(DESK ? "/tiles/{s}/{z}/{x}/{y}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' });
     map.attributionControl.setPrefix('<a href="#sources">ReachGrid data sources</a>');
     ["context", "base", "roads", "cells", "route", "chargers", "places", "cands", "extra", "sites", "osm"].forEach(k => { G[k] = L.layerGroup().addTo(map); });
     map.fitBounds([[6.5, 68], [35.7, 97.4]]);
@@ -215,6 +229,9 @@
     }
   }
   const isDC = (c) => (c[4] || 0) >= 15 || (c[6] || 0) > 0;
+  const TIER_LABEL = { ac_slow: "AC ≤7.4 kW", ac_fast: "AC 7.4–22 kW", dc_fast: "DC 25–60 kW", dc_ultra: "DC >60 kW", unknown: "power unknown" };
+  const tierOf = (c) => { const kw = c[4], ac = c[5], dc = c[6]; if (kw) return kw <= 7.4 ? "ac_slow" : kw <= 22 && !dc ? "ac_fast" : kw <= 60 ? "dc_fast" : "dc_ultra"; if (dc) return "dc_fast"; if (ac) return "ac_slow"; return "unknown"; };
+  const CONN_RE = [["CCS2", /ccs/i], ["Type 2", /type\s*2/i], ["Bharat AC-001", /ac-?001|bharat\s*ac/i], ["Bharat DC-001", /dc-?001|bharat\s*dc/i], ["3-pin / 15A", /3-?pin|15a/i], ["CHAdeMO", /chademo/i], ["GB/T", /gb\/?t/i], ["Type 6 / LEV", /type\s*6|lev/i]];
 
   /* draw a district in detail */
   function drawDistrict(sd, d) {
@@ -262,7 +279,7 @@
     for (const c of d.chargers) {
       if (S.opts.chargerFilter === "dc" && !isDC(c)) continue;
       if (S.opts.chargerFilter === "verified" && c[8] < 2) continue;
-      L.marker([c[0], c[1]], { icon: L.divIcon({ className: "", html: `<div class="charger-sq ${isDC(c) ? "" : "ac"}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }), keyboard: false }).bindPopup(chargerPopup(c)).addTo(G.chargers);
+      L.marker([c[0], c[1]], { icon: L.divIcon({ className: "", html: `<div class="charger-sq t-${tierOf(c)}" title="${TIER_LABEL[tierOf(c)]}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }), keyboard: false }).bindPopup(chargerPopup(c)).addTo(G.chargers);
     }
   }
   function drawPlaces(d) {
@@ -464,16 +481,16 @@
     const isD = S.level === "district";
     const name = isD ? INDIA.districtById.get(S.did).name : INDIA.stateById.get(S.sid).name;
     $("#insp-title").textContent = `${name} · ${isD ? "District" : "State"} inspector`;
-    const T = [["overview", "Overview"], ["plan", "Plan"], ["compare", "Compare"], ["validate", "Validate"], ["evidence", "Evidence"], ["portfolio", "Portfolio"], ["chargers", "Chargers"], ["ledger", "Ledger"]];
+    const T = [["overview", "Overview"], ["plan", "Plan"], ["forecast", "Forecast"], ["compare", "Compare"], ["validate", "Validate"], ["evidence", "Evidence"], ["portfolio", "Portfolio"], ["chargers", "Chargers"], ["ledger", "Ledger"]];
     el.innerHTML = tabs(T) + `<div id="tabbody"></div>`;
     bindTabs(el);
     const tb = $("#tabbody");
-    if (["plan", "compare", "validate", "evidence", "portfolio"].includes(S.tab) && !S.analysis) {
+    if (["plan", "forecast", "compare", "validate", "evidence", "portfolio"].includes(S.tab) && !S.analysis) {
       tb.innerHTML = `<p class="sub">Building demand cells, candidate sites and plans for ${esc(name)}…</p>`;
       setTimeout(() => { runAnalysis(); drawPlan(true); if (S.level === "state") drawCells(); renderInspector(); updateStatus(); }, 30);
       return;
     }
-    ({ overview: tabOverview, plan: tabPlan, compare: tabCompare, sens: tabCompare, validate: tabValidate, evidence: tabEvidence, portfolio: tabPortfolio, chargers: tabChargers, ledger: tabLedger }[S.tab] || tabOverview)(tb, name);
+    ({ overview: tabOverview, plan: tabPlan, forecast: tabForecast, compare: tabCompare, sens: tabCompare, validate: tabValidate, evidence: tabEvidence, portfolio: tabPortfolio, chargers: tabChargers, ledger: tabLedger }[S.tab] || tabOverview)(tb, name);
   }
 
   function kpiGrid(st, extra = []) {
@@ -508,6 +525,8 @@
       ${bands.map(([a, b, ds]) => `<div class="hist"><span>${Math.round(a * 100)}–${Math.min(100, Math.round(b * 100))}%</span><div class="minibar"><i style="width:${(ds.length / maxB) * 100}%;background:${PAL[5 - Math.round(a * 5)]}"></i></div><span>${ds.length}</span></div>`).join("")}
       <div class="hdr"><span>Largest access gaps (districts >10 L people)</span></div>
       <table class="t"><tbody>${worst.map(d => `<tr class="click" data-d="${d.id}"><td>${esc(d.name)}<br><span class="sub">${esc(INDIA.stateById.get(d.sid).name)}</span></td><td class="n">${pct(1 - d.stats.coverage["10"], 0)} beyond 10 km<br><span class="sub">${people(d.stats.pop * (1 - d.stats.coverage["10"]))} people</span></td></tr>`).join("")}</tbody></table>
+      ${INDIA.vahan_national ? `<div class="hdr"><span>Electric two-wheeler registrations (VAHAN)</span></div>${barRows(Object.entries(INDIA.vahan_national).map(([y, v]) => ({ name: y + ` · ${pct(v.share, 1)} of 2W`, value: v.e2w })), { max: Math.max(...Object.values(INDIA.vahan_national).map(v => v.e2w)), fmt: (v) => people(v) })}` : ""}
+      <div class="hdr"><span>Power tiers (all sites)</span></div>${inventoryBars(T.inventory || null)}
       <div class="hdr"><span>Largest operators (sites)</span></div>${operatorsBars(T.operators)}
       <div class="hdr"><span>Cross-check: official counts</span><span class="sub">BEE, March 2024</span></div>
       <div class="scroll" style="max-height:220px"><table class="t"><thead><tr><th>State</th><th class="n">Listed now</th><th class="n">Official 2024</th><th class="n">Ratio</th></tr></thead><tbody>${INDIA.states.filter(x => x.stats.official_pcs_mar2024 != null).sort((a, b) => b.stats.chargers - a.stats.chargers).map(x => `<tr class="click" data-st="${x.id}"><td>${esc(x.name)}</td><td class="n">${nIN(x.stats.chargers)}</td><td class="n">${nIN(x.stats.official_pcs_mar2024)}</td><td class="n" style="color:${x.stats.chargers < x.stats.official_pcs_mar2024 ? "var(--bad)" : "inherit"}">${(x.stats.chargers / x.stats.official_pcs_mar2024).toFixed(1)}×</td></tr>`).join("")}</tbody></table></div>
@@ -530,6 +549,7 @@
       const d = curDistrict(), idx = Rg.chargerIndex(INDIA, "all");
       html += `<div class="hdr"><span>Towns & nearest charger</span><span class="sub">GeoNames</span></div><table class="t"><thead><tr><th>Town</th><th class="n">Population</th><th class="n">Nearest</th></tr></thead><tbody>${d.places.slice(0, 12).map(([n, lon, lat, p]) => { const near = idx.nearest(lat, lon, 400); return `<tr class="click" data-ll="${lat},${lon}"><td>${esc(n)}</td><td class="n">${nIN(p)}</td><td class="n" style="color:${near && near.d > S.opts.tauKm ? "var(--bad)" : "inherit"}">${near ? km(near.d) : "—"}</td></tr>`; }).join("")}</tbody></table>`;
     }
+    html += inventoryHTML(st.inventory) + vahanHTML(isD ? st : null, isD ? INDIA.stateById.get(S.sid).stats : st);
     html += `<div class="hdr"><span>Operators (sites)</span></div>${operatorsBars(st.operators)}`;
     html += `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px"><button class="btn sm" id="go-plan">Plan new chargers →</button>${!isD ? "" : `<button class="btn sm ghost" id="go-led">Data confidence</button>`}</div>`;
     tb.innerHTML = html;
@@ -616,6 +636,7 @@
       <ul style="margin:6px 0;padding-left:16px">
         <li>Would newly cover <b>${people(c.raw.gap)}</b> people now beyond ${S.opts.tauKm} km (est., ${pct(c.raw.gap / A.ctx.base.total, 1)} of region)</li>
         <li>${nIN(c.raw.vehicleHH)} ${/uploaded/.test(A.ctx.pressureSource) ? "registered EVs (uploaded)" : "vehicle-owning households (Census 2011 rates)"} in reach · ${c.raw.localChargers} existing sites in reach</li>
+        ${c.raw.gridKm != null ? `<li>Nearest ${A.ctx.gridIdx && A.ctx.gridIdx.kind === "substation" ? "power substation" : "power plant (grid proxy)"}: <b>${km(c.raw.gridKm)}</b>. Proximity only; spare capacity comes from the DISCOM.</li>` : ""}
         <li>Nearest mapped highway ${isFinite(c.raw.roadKm) ? km(c.raw.roadKm) : "far"}${c.placePop ? ` · ${esc(c.place)} pop. ${nIN(c.placePop)}` : ""}</li>
       </ul>
       <div class="hdr"><span>Confidence: ${conf.grade}</span><span class="sub">separate from score</span></div>
@@ -643,6 +664,7 @@
     };
   }
   function download(name, text, type) {
+    if (DESK) { DESK.saveFile(name, text).then(r => { if (r && r.ok) toast("Saved " + r.path); }); return; }
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
   const csvCell = (v) => { const s = v == null ? "" : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -663,7 +685,7 @@
     }
     if (kind === "geojson") download(base + ".geojson", JSON.stringify({ type: "FeatureCollection", properties: { scenario_id: rec.scenario_id, region: rec.region.name }, features: rec.shortlist.map(s => ({ type: "Feature", geometry: { type: "Point", coordinates: [s.lng, s.lat] }, properties: s })) }), "application/geo+json");
     if (kind === "save") { const list = store.get("scenarios", []).filter(x => x.id !== rec.scenario_id); list.push({ id: rec.scenario_id, region: rec.region, opts: S.opts, plan: S.planKey, planName: rec.plans[S.planKey].name, metrics: rec.plans[S.planKey] }); store.set("scenarios", list.slice(-30)); renderInspector(); }
-    if (kind === "print") window.print();
+    if (kind === "print") { if (DESK) { const r = await DESK.pdfReport(base + ".pdf"); if (r && r.ok) toast("PDF saved: " + r.path); } else window.print(); }
   }
 
   /* ---------- chargers tab ---------- */
@@ -672,18 +694,20 @@
     const all = ds.flatMap(d => d.chargers.map(c => ({ c, d: d.name })));
     const ops = [...new Set(all.map(x => x.c[3] || "Unknown"))].sort();
     tb.innerHTML = `<div class="grid2"><input type="search" id="cq" placeholder="Filter name / address…"><select id="cop"><option value="">All operators (${ops.length})</option>${ops.map(o => `<option>${esc(o)}</option>`).join("")}</select></div>
+      <div class="grid2" style="margin-top:6px"><select id="ctier"><option value="">All power tiers</option>${Object.entries(TIER_LABEL).map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select><select id="cconn"><option value="">All connectors</option>${CONN_RE.map(([n]) => `<option>${n}</option>`).join("")}</select></div>
       <div style="display:flex;gap:10px;margin:6px 0;font-size:11.5px"><label><input type="checkbox" id="cdc"> DC only</label><label><input type="checkbox" id="cver"> ≥2 sources</label><span class="sub" id="ccount"></span></div>
       <div class="scroll" style="max-height:420px"><table class="t"><thead><tr><th>Station</th><th class="n">kW</th><th class="n">₹/kWh</th><th class="n">Src</th></tr></thead><tbody id="crows"></tbody></table></div>
       <div style="margin-top:8px"><button class="btn sm" id="cexp">Export CSV</button></div>`;
     let rows = [];
     const draw = () => {
       const q = norm($("#cq").value), op = $("#cop").value, dc = $("#cdc").checked, ver = $("#cver").checked;
-      rows = all.filter(({ c }) => (!q || norm(c[2] + " " + c[11] + " " + c[10]).includes(q)) && (!op || (c[3] || "Unknown") === op) && (!dc || isDC(c)) && (!ver || c[8] >= 2));
+      const tier = $("#ctier").value, conn = $("#cconn").value, cre = conn && CONN_RE.find(x => x[0] === conn)[1];
+      rows = all.filter(({ c }) => (!q || norm(c[2] + " " + c[11] + " " + c[10]).includes(q)) && (!op || (c[3] || "Unknown") === op) && (!dc || isDC(c)) && (!ver || c[8] >= 2) && (!tier || tierOf(c) === tier) && (!cre || cre.test(c[12] || "")));
       $("#ccount").textContent = `${nIN(rows.length)} of ${nIN(all.length)}`;
       $("#crows").innerHTML = rows.slice(0, 400).map(({ c, d }, i) => `<tr class="click" data-i="${i}"><td><b>${esc(c[2] || "Unnamed")}</b><br><span class="sub">${esc(c[3] || "Unknown")}${S.level === "state" ? " · " + esc(d) : ""}</span></td><td class="n">${c[4] ?? "—"}</td><td class="n">${(c[7].match(/[\d.]+/) || ["—"])[0]}</td><td class="n">${c[8]}</td></tr>`).join("") + (rows.length > 400 ? `<tr><td colspan="4" class="sub">Showing first 400; export for all.</td></tr>` : "");
       $$("#crows tr[data-i]").forEach(r => r.onclick = () => { const { c } = rows[+r.dataset.i]; map.flyTo([c[0], c[1]], 15); L.popup().setLatLng([c[0], c[1]]).setContent(chargerPopup(c)).openOn(map); });
     };
-    ["cq", "cop", "cdc", "cver"].forEach(id => $("#" + id).addEventListener("input", draw)); draw();
+    ["cq", "cop", "cdc", "cver", "ctier", "cconn"].forEach(id => $("#" + id).addEventListener("input", draw)); draw();
     $("#cexp").onclick = () => { const f = INDIA.charger_fields; download(`chargers_${slug(regionName())}.csv`, [["district", ...f].join(","), ...rows.map(({ c, d }) => [d, ...c].map(csvCell).join(","))].join("\n"), "text/csv"); };
   }
 
@@ -755,11 +779,19 @@
     $("#croute").onclick = () => runCorridor();
     $$("[data-pre]", body).forEach(b => b.onclick = () => { const [a, z] = PRESETS[+b.dataset.pre]; C.from = findPlace(a); C.to = findPlace(z); $("#cf").value = C.from?.[0] || a; $("#ct").value = C.to?.[0] || z; runCorridor(); });
   }
-  function runCorridor() {
+  async function runCorridor() {
     const C = S.corridor;
     if (!C.from || !C.to) { $("#insp-body").innerHTML = `<p>Pick both towns from the suggestions first.</p>`; return; }
     GRAPH ||= E.buildGraph(ROADS);
-    const r = E.route(GRAPH, { lat: C.from[2], lng: C.from[1] }, { lat: C.to[2], lng: C.to[1] });
+    let r = null;
+    if (DESK && (await deskSettings()).osrmRouting) {
+      $("#insp-body").innerHTML = `<p class="sub">Routing on the street network (OSRM)…</p>`;
+      try {
+        const j = await fetch(`/proxy/osrm?coords=${C.from[1]},${C.from[2]};${C.to[1]},${C.to[2]}`).then(x => { if (!x.ok) throw new Error("HTTP " + x.status); return x.json(); });
+        if (j.routes && j.routes[0]) r = { path: j.routes[0].geometry.coordinates, km: j.routes[0].distance / 1000, snapFrom: 0, snapTo: 0, engine: "OSRM street network" };
+      } catch (e) { toast("Street routing unavailable (" + e.message + "); using the highway graph"); }
+    }
+    if (!r) { r = E.route(GRAPH, { lat: C.from[2], lng: C.from[1] }, { lat: C.to[2], lng: C.to[1] }); if (r) r.engine = "Natural Earth highway graph"; }
     if (!r) { S.route = { error: "No highway route found between these towns on the coarse network." }; renderInspector(); return; }
     const idx = Rg.chargerIndex(INDIA, C.dcOnly ? "dc" : "all");
     const g = E.corridorGaps(r.path, idx, { bufferKm: C.buffer, rangeKm: C.range, reservePct: C.reserve });
@@ -789,7 +821,7 @@
     const W = 360, scale = W / g.total;
     const strip = `<svg viewBox="0 0 ${W} 46" width="100%" role="img" aria-label="Charging stops along the route"><rect x="0" y="18" width="${W}" height="10" fill="#fff" stroke="#1b1b1d"/>${g.gaps.map(gp => gp.km > g.usable * 0.6 ? `<rect x="${gp.from * scale}" y="18" width="${gp.km * scale}" height="10" fill="${gp.km > g.usable ? "#b11a52" : "#e44fbf"}"/>` : "").join("")}${g.stops.map(s => `<rect x="${s.at * scale - 1}" y="12" width="2" height="22" fill="#1b1b1d"/>`).join("")}${g.plan.map((s, i) => `<g><rect x="${s.at * scale - 7}" y="0" width="14" height="12" fill="#e44fbf" stroke="#1b1b1d"/><text x="${s.at * scale}" y="9.5" font-size="8" text-anchor="middle" fill="#fff" font-family="monospace">${i + 1}</text></g>`).join("")}<text x="0" y="44" font-size="9" font-family="monospace">${esc(from[0])}</text><text x="${W}" y="44" font-size="9" text-anchor="end" font-family="monospace">${esc(to[0])} · ${g.total.toFixed(0)} km</text></svg>`;
     el.innerHTML = `<div class="big-name">${esc(from[0])} → ${esc(to[0])}</div>
-      <div class="sub">${g.total.toFixed(0)} km on mapped highways${r.snapFrom > 5 || r.snapTo > 5 ? ` (+${(r.snapFrom + r.snapTo).toFixed(0)} km to reach the network)` : ""}</div>
+      <div class="sub">${g.total.toFixed(0)} km · ${esc(r.engine || "highway graph")}${r.snapFrom > 5 || r.snapTo > 5 ? ` (+${(r.snapFrom + r.snapTo).toFixed(0)} km to reach the network)` : ""}</div>
       <div class="kpis" style="margin-top:8px">
         <div class="kpi"><b style="color:${g.feasible ? "var(--good)" : "var(--bad)"}">${g.feasible ? "Feasible" : "Not feasible"}</b><span>with ${opts.range} km range, ${opts.reserve}% reserve</span></div>
         <div class="kpi"><b>${g.feasible ? g.plan.length : "—"}</b><span>minimum charging stops</span></div>
@@ -816,11 +848,12 @@
         <div class="layers">${S.level === "india" ? `<label><input type="checkbox" data-l="chargersIndia" ${S.layers.chargersIndia ? "checked" : ""}> all ${nIN(INDIA.totals.chargers)} chargers</label>` : `<label><input type="checkbox" data-l="chargers" ${S.layers.chargers ? "checked" : ""}> chargers</label><label><input type="checkbox" data-l="roads" ${S.layers.roads ? "checked" : ""}> highways</label><label><input type="checkbox" data-l="stateTiles" ${S.layers.stateTiles ? "checked" : ""}> street map</label>`}</div>`;
     } else {
       const t = S.opts.tauKm;
-      el.innerHTML = `<div class="lgrow"><span class="sw sq"></span>DC charger (listed)</div><div class="lgrow"><span class="sw hollow"></span>AC / power unknown</div>
+      el.innerHTML = `${Object.entries(TIER_LABEL).map(([k, n]) => `<div class="lgrow"><span class="charger-sq t-${k}" style="flex:none"></span>${n}</div>`).join("")}
+        ${S.layers.grid ? `<div class="lgrow"><span class="grid-dot"></span>${INDIA.grid && INDIA.grid.kind === "substation" ? "power substation (OSM)" : "power plant (WRI)"}</div>` : ""}
         <div class="lgrow"><span class="sw" style="background:#fff"></span>Demand within ${t} km</div>
         <div class="lgrow"><span class="sw" style="background:${PAL[2]}"></span>${t}–${1.5 * t} km</div><div class="lgrow"><span class="sw" style="background:${PAL[4]}"></span>${2 * t}–${3 * t} km</div><div class="lgrow"><span class="sw" style="background:${PAL[5]}"></span>&gt; ${3 * t} km</div>
         <div class="lgrow"><span class="sw newcov"></span>Newly covered by plan</div><div class="lgrow"><span class="sw sel"></span>Proposed site (rank)</div>
-        <div class="layers">${[["tiles", "street map"], ["cells", "demand cells"], ["chargers", "chargers"], ["places", "towns"], ["roads", "highways"], ["cands", "all candidates"], ["sites", "plan sites"]].map(([k, n]) => `<label><input type="checkbox" data-l="${k}" ${S.layers[k] ? "checked" : ""}> ${n}</label>`).join("")}</div>`;
+        <div class="layers">${[["tiles", "street map"], ["cells", "demand cells"], ["chargers", "chargers"], ["places", "towns"], ["roads", "highways"], ["grid", "grid proxy"], ["cands", "all candidates"], ["sites", "plan sites"]].map(([k, n]) => `<label><input type="checkbox" data-l="${k}" ${S.layers[k] ? "checked" : ""}> ${n}</label>`).join("")}</div>`;
     }
     $$("[data-l]", el).forEach(i => i.onchange = () => {
       S.layers[i.dataset.l] = i.checked;
@@ -939,7 +972,7 @@
         else if (S.level === "district") goState(S.sid);
         else if (S.level === "state" || S.mode === "corridor") { S.mode = "atlas"; S.route = null; clearLayers("route"); goIndia(); }
       }
-      else if (/^[1-8]$/.test(k) && S.level !== "india" && S.mode !== "corridor") { S.tab = ["overview", "plan", "compare", "validate", "evidence", "portfolio", "chargers", "ledger"][+k - 1]; renderInspector(); }
+      else if (/^[1-9]$/.test(k) && S.level !== "india" && S.mode !== "corridor") { S.tab = ["overview", "plan", "forecast", "compare", "validate", "evidence", "portfolio", "chargers", "ledger"][+k - 1]; renderInspector(); }
     });
     map.on("mousemove", e => { $("#sb-cursor").textContent = `${e.latlng.lat.toFixed(4)}°N ${e.latlng.lng.toFixed(4)}°E · z${map.getZoom().toFixed(1)}`; });
     initFloating(); initRole(); initPick(); initDocsMenu(); registerAPI();
@@ -989,7 +1022,8 @@
   }
 
   /* ------------------------------------------------------------------ assistant */
-  let sdkLoaded = null, apiKey = store.get("ak", null), chat = [];
+  let sdkLoaded = null, apiKey = DESK ? null : store.get("ak", null), chat = [];
+  if (DESK) DESK.secretGet("anthropic").then(k => { if (k) apiKey = k; });
   function initAsk() {
     const el = $("#ask-body");
     el.innerHTML = `<div class="chatlog" id="chatlog" aria-live="polite"></div>
@@ -1002,8 +1036,8 @@
     say("bot", "Hi! I'm working from the loaded data: 25k+ real chargers, census demand and the optimiser. Ask me where access is weakest, where to build next, or compare two places.");
     renderAskSuggestions();
     $("#askform").onsubmit = (e) => { e.preventDefault(); const q = $("#askin").value.trim(); if (!q) return; $("#askin").value = ""; ask(q); };
-    $("#akeyset").onclick = () => { const v = $("#akey").value.trim(); if (v && !v.startsWith("•")) { apiKey = v; if ($("#akrem").checked) store.set("ak", v); say("bot", "Claude connected. Open questions now go to Claude with the current map context."); } };
-    $("#akclr").onclick = () => { apiKey = null; store.set("ak", null); $("#akey").value = ""; say("bot", "Key forgotten."); };
+    $("#akeyset").onclick = () => { const v = $("#akey").value.trim(); if (v && !v.startsWith("•") && DESK) { apiKey = v; if ($("#akrem").checked) DESK.secretSet("anthropic", v); say("bot", "Claude connected. The key is stored encrypted by your operating system."); return; } if (v && !v.startsWith("•")) { apiKey = v; if ($("#akrem").checked) store.set("ak", v); say("bot", "Claude connected. Open questions now go to Claude with the current map context."); } };
+    $("#akclr").onclick = () => { apiKey = null; store.set("ak", null); if (DESK) DESK.secretSet("anthropic", null); $("#akey").value = ""; say("bot", "Key forgotten."); };
   }
   function renderAskSuggestions() {
     const s = S.level === "india" ? ["Which districts have the worst access?", "Compare Kerala and Bihar", "Delhi to Jaipur by EV?"] : S.level === "state" ? ["Worst-served districts here?", "Who operates most chargers?", "Where should the next chargers go?"] : ["Where should the next chargers go?", "How reliable is this data?", "How many people are beyond 10 km?"];
@@ -1119,9 +1153,9 @@
     admin: ["run", "save", "export", "evidence", "propose", "ev_upload", "approve", "portfolio", "audit_admin"],
   };
   const Gov = {
-    role: () => store.get("role", "analyst"),
-    user: () => store.get("user", "analyst@local"),
-    can: (p) => PERMS[Gov.role()].includes(p),
+    role: () => DESK ? ((DESK.session() || {}).role || "viewer") : store.get("role", "analyst"),
+    user: () => DESK ? ((DESK.session() || {}).user || "signed-out") : store.get("user", "analyst@local"),
+    can: (p) => DESK ? (((DESK.session() || {}).perms) || []).includes(p) : PERMS[Gov.role()].includes(p),
     need(p, what) { if (Gov.can(p)) return true; toast(`Your role (${ROLES[Gov.role()]}) cannot ${what}. Switch role in the toolbar.`); return false; },
   };
   const hexOf = (buf) => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -1130,14 +1164,16 @@
     return "fnv-" + fnv(text) + fnv(text + "#");   // insecure contexts (file://) only
   }
   const Audit = {
-    list: () => store.get("audit", []),
+    list: () => DESK ? DESK.auditList() : store.get("audit", []),
     async add(action, detail) {
+      if (DESK) return DESK.auditAdd(action, String(detail || "").slice(0, 300));
       const list = Audit.list(), prev = list.length ? list[list.length - 1].hash : "0".repeat(64);
       const e = { ts: new Date().toISOString(), user: Gov.user(), role: Gov.role(), action, detail: String(detail || "").slice(0, 300), build: INDIA.version, prev };
       e.hash = await sha256Hex(JSON.stringify([e.ts, e.user, e.role, e.action, e.detail, e.build, e.prev]));
       list.push(e); store.set("audit", list.slice(-3000));
     },
     async verify() {
+      if (DESK) return DESK.auditVerify();
       const list = Audit.list();
       for (let i = 0; i < list.length; i++) {
         const e = list[i];
@@ -1180,12 +1216,14 @@
     });
   }
   function pickFile(accept) {
+    if (DESK) return DESK.openFile(accept).then(r => { if (r && r.error) { toast(r.error); return null; } return r; });
     return new Promise(res => { const i = document.createElement("input"); i.type = "file"; i.accept = accept; i.onchange = () => { const f = i.files[0]; if (!f) return res(null); const r = new FileReader(); r.onload = () => res({ name: f.name, text: r.result }); r.readAsText(f); }; i.click(); });
   }
   function initRole() {
     const tools = $(".ab-tools"); if (!tools || $("#ab-role")) return;
     const b = document.createElement("button"); b.className = "ab-btn ab-role"; b.id = "ab-role"; b.title = "Role (workflow permissions)";
-    const sync = () => { b.textContent = ROLES[Gov.role()]; };
+    const sync = () => { b.textContent = DESK ? `${(DESK.session() || {}).name || "Signed out"} · ${ROLES[Gov.role()]}` : ROLES[Gov.role()]; };
+    if (DESK) { b.title = "Account, users and settings"; b.onclick = () => openSettings("account"); tools.prepend(b); sync(); window.__syncRole = sync; return; }
     b.onclick = async () => {
       const next = { viewer: "analyst", analyst: "admin", admin: "viewer" }[Gov.role()];
       if (next === "admin" && store.get("admin_pin", null)) {
@@ -1224,7 +1262,7 @@
     return `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="${esc(yLabel)} by ${esc(xLabel)}" style="background:var(--paper);border:1.5px solid var(--line)">
       ${ticks.map(t => `<line x1="${pad.l}" x2="${w - pad.r}" y1="${Y(t)}" y2="${Y(t)}" stroke="currentColor" stroke-opacity=".12"/><text x="${pad.l - 4}" y="${Y(t) + 3}" font-size="9" text-anchor="end" font-family="monospace" fill="currentColor">${esc(yFmt(t))}</text>`).join("")}
       ${series.map(s => `<polyline fill="none" stroke="${s.color}" stroke-width="2" ${s.dash ? 'stroke-dasharray="4 3"' : ""} points="${s.points.map(p => X(p[0]) + "," + Y(p[1])).join(" ")}"/>${s.points.map(p => `<circle cx="${X(p[0])}" cy="${Y(p[1])}" r="2.6" fill="${s.color}"><title>${esc(s.name)}: ${esc(xFmt(cat[p[0]]))} → ${esc(yFmt(p[1]))}</title></circle>`).join("")}`).join("")}
-      ${series[0].points.map(p => `<text x="${X(p[0])}" y="${h - pad.b + 12}" font-size="8.5" text-anchor="middle" font-family="monospace" fill="currentColor">${esc(xFmt(cat[p[0]]).replace("₹", ""))}</text>`).join("")}
+      ${series[0].points.map(p => `<text x="${X(p[0])}" y="${h - pad.b + 12}" font-size="8.5" text-anchor="middle" font-family="monospace" fill="currentColor">${esc(String(xFmt(cat[p[0]])).replace("₹", ""))}</text>`).join("")}
       <text x="${(w + pad.l) / 2}" y="${h - 4}" font-size="9" text-anchor="middle" font-family="monospace" fill="currentColor">${esc(xLabel)}</text>
     </svg><div style="display:flex;gap:12px;font-size:11px;margin-top:4px">${series.map(s => `<span><i style="display:inline-block;width:14px;height:3px;background:${s.color};vertical-align:middle"></i> ${esc(s.name)}</span>`).join("")}</div>`;
   }
@@ -1471,6 +1509,12 @@
   function drawExtras() {
     if (!G.extra) return; G.extra.clearLayers();
     if (S.level === "india") return;
+    if (S.layers.grid && INDIA.grid) {
+      const gi = Rg.gridIndex(INDIA), geoms = S.level === "district" ? [curDistrict().geom] : curState().districts.map(d => d.geom);
+      let bb = [180, 90, -180, -90]; geoms.forEach(g => { const b = E.bbox(g); bb = [Math.min(bb[0], b[0]), Math.min(bb[1], b[1]), Math.max(bb[2], b[2]), Math.max(bb[3], b[3])]; });
+      for (const p of gi.pts) if (p.lng > bb[0] - 0.4 && p.lng < bb[2] + 0.4 && p.lat > bb[1] - 0.4 && p.lat < bb[3] + 0.4)
+        L.marker([p.lat, p.lng], { keyboard: false, icon: L.divIcon({ className: "", html: '<div class="grid-dot">⚡</div>', iconSize: [16, 16], iconAnchor: [8, 8] }) }).bindTooltip(INDIA.grid.kind === "substation" ? `Substation${p.size ? ` · ${p.size} kV` : ""} (OSM)` : `Power plant · ${nIN(p.size)} MW (WRI)`, { className: "rg-tip" }).addTo(G.extra);
+    }
     for (const r of Evidence.all()) {
       const col = r.status === "ok" ? "#2f7d5b" : r.status === "blocked" ? "#b11a52" : "#8a8a8a";
       L.circleMarker([+r.lat, +r.lng], { radius: 7, color: col, weight: 3, fillColor: "#fff", fillOpacity: 1 }).bindTooltip(`<b>${esc(r.name || "Evidence")}</b><br>status: ${esc(r.status)}${r.grid_kva ? `<br>${esc(r.grid_kva)} kVA` : ""}${r.notes ? `<br>${esc(r.notes)}` : ""}`, { className: "rg-tip" }).addTo(G.extra);
@@ -1531,6 +1575,257 @@
   }
 
 
+
+  /* ================================================================== inventory & VAHAN panels */
+  function inventoryBars(inv) {
+    if (!inv) return `<p class="sub">No inventory.</p>`;
+    const max = Math.max(1, ...Object.values(inv.tiers));
+    return Object.entries(inv.tiers).map(([k, v]) => `<div class="hist"><span><span class="charger-sq t-${k}" style="display:inline-block;vertical-align:middle;margin-right:4px"></span>${TIER_LABEL[k]}</span><div class="minibar"><i style="width:${(v / max) * 100}%"></i></div><span style="text-align:right">${nIN(v)}</span></div>`).join("");
+  }
+  function inventoryHTML(inv) {
+    if (!inv) return "";
+    const ex = window.RGAdvanced.existingPoints(inv);
+    return `<div class="hdr"><span>Charger inventory by power</span><span class="sub">${nIN(inv.ac_points + inv.dc_points)} guns published at ${nIN(inv.points_known_sites)} sites</span></div>${inventoryBars(inv)}
+      <div class="sub" style="margin-top:4px">Connectors: ${Object.entries(inv.connectors).map(([k, v]) => `${esc(k)} ${v}`).join(" · ") || "not published"}. Estimated charge points: <b>${ex.ac}</b> AC, <b>${ex.dc}</b> DC (${ex.imputed} imputed for sites without published guns).</div>`;
+  }
+  function vahanHTML(dst, sst) {
+    const v = sst.vahan; if (!v) return "";
+    const yrs = Object.entries(v.years);
+    return `<div class="hdr"><span>EV registrations (VAHAN, two-wheelers)</span><span class="sub">${esc(INDIA.stateById.get(S.sid).name)} · state</span></div>
+      ${barRows(yrs.map(([y, r]) => ({ name: `${y} · ${pct(r.share, 1)} of 2W`, value: r.e2w })), { max: Math.max(...yrs.map(([, r]) => r.e2w)), fmt: (x) => nIN(x) })}
+      <div class="sub" style="margin-top:4px">Growth 2021→2024: <b>${v.cagr_2021_2024 != null ? pct(v.cagr_2021_2024, 0) + "/yr" : "—"}</b>.${dst && dst.e2w_2024 != null ? ` This district (allocated by Census 2W ownership, <span class="tag der">derived</span>): <b>${nIN(dst.e2w_2024)}</b> registered in 2024, ~<b>${nIN(dst.e2w_stock)}</b> on the road since 2020.` : ""}</div>`;
+  }
+
+  /* ================================================================== Forecast tab: 2025–2030 fleet and required chargers */
+  function forecastInputs() {
+    const isD = S.level === "district", st = isD ? statOf(S.did) : INDIA.stateById.get(S.sid).stats, sv = INDIA.stateById.get(S.sid).stats.vahan;
+    const up = evMap(), cfg = { ...window.RGAdvanced.FORECAST_DEFAULTS, ...store.get("fcfg", {}) };
+    let reg = isD ? st.e2w_2024 : sv && sv.years["2024"].e2w, stock = isD ? st.e2w_stock : sv && sv.stock_2020_2024, src = "VAHAN E2W (state" + (isD ? ", allocated to district)" : ")");
+    const ids = isD ? [S.did] : curState().districts.map(d => d.id);
+    if (up && ids.some(id => up[id] != null)) {
+      const total = ids.reduce((a, id) => a + (up[id] || 0), 0), share = 1 / (1 + cfg.ratios.e3w + cfg.ratios.e4w + cfg.ratios.ebus);
+      stock = total * share; reg = stock * (reg && (isD ? st.e2w_stock : sv.stock_2020_2024) ? reg / (isD ? st.e2w_stock : sv.stock_2020_2024) : 0.35); src = "uploaded EV registrations (split by segment ratios)";
+    }
+    return { reg: reg || 0, stock: stock || 0, cagr: sv ? sv.cagr_2021_2024 : null, existing: window.RGAdvanced.existingPoints(st.inventory), src, cfg };
+  }
+  function tabForecast(tb) {
+    const inp = forecastInputs(), c = inp.cfg, F = window.RGAdvanced.forecast({ e2wReg2024: inp.reg, e2wStock: inp.stock, cagr: inp.cagr, existing: inp.existing }, c);
+    const year = Math.min(c.horizon, Math.max(2025, store.get("fyear", 2030))), r = F.rows.find(x => x.year === year) || F.rows[F.rows.length - 1];
+    const target = store.get("ftarget", 0.9);
+    const cov = window.RGAdvanced.sitesForCoverage(S.analysis.ctx, S.analysis.cands, effOpts(), target);
+    const fleet = (row) => Object.values(row.stock).reduce((a, b) => a + b, 0);
+    const num = (k, label, v, step, sub) => `<label class="f">${label}<input type="number" min="0" step="${step}" value="${v}" data-fc="${k}"${sub ? ` data-sub="${sub}"` : ""}></label>`;
+    tb.innerHTML = `
+      <div class="grid2">
+        <label class="f">Growth scenario<select id="fc-scn">${[["trend", `VAHAN trend (${inp.cagr != null ? pct(inp.cagr, 0) : "n/a"}/yr, easing to ${pct(c.floorGrowth, 0)})`], ["moderate", "Moderate (25%/yr)"], ["conservative", "Conservative (12%/yr)"], ["custom", "Custom"]].map(([k, n]) => `<option value="${k}" ${c.scenario === k ? "selected" : ""}>${n}</option>`).join("")}</select></label>
+        <label class="f"><span class="row"><span>Year</span><b>${year}</b></span><input type="range" min="2025" max="${c.horizon}" step="1" value="${year}" id="fc-year"></label>
+        ${c.scenario === "custom" ? num("customGrowth", "Custom growth (fraction/yr)", c.customGrowth, 0.01) : ""}
+        <label class="f">Coverage target within τ<select id="fc-target">${[0.8, 0.9, 0.95].map(v => `<option value="${v}" ${v === target ? "selected" : ""}>${v * 100}% of people</option>`).join("")}</select></label>
+      </div>
+      <div class="result-band" style="grid-template-columns:repeat(3,1fr)">
+        <div><b>${people(fleet(r))}</b><span>EVs in ${year} (all segments)</span></div>
+        <div><b>${nIN(r.needAc)}</b><span>AC points needed (have ${nIN(r.haveAc)})</span></div>
+        <div><b>${nIN(r.needDc)}</b><span>DC points needed (have ${nIN(r.haveDc)})</span></div>
+        <div><b style="color:${r.gapAc ? "var(--bad)" : "var(--good)"}">${nIN(r.gapAc)}</b><span>AC points to add</span></div>
+        <div><b style="color:${r.gapDc ? "var(--bad)" : "var(--good)"}">${nIN(r.gapDc)}</b><span>DC points to add</span></div>
+        <div><b>${cov.sites}</b><span>new sites for ${pct(target, 0)} within ${S.opts.tauKm} km (${rupL(cov.cost)})${cov.capped ? " · not reachable with candidates" : ""}</span></div>
+      </div>
+      ${lineChart([
+        { name: "AC points needed", color: "#e44fbf", points: F.rows.map(x => [x.year, x.needAc]) },
+        { name: "DC points needed", color: "#1b1b1d", points: F.rows.map(x => [x.year, x.needDc]) },
+        { name: "existing AC+DC", color: "#5aa9ff", dash: true, points: F.rows.map(x => [x.year, x.haveAc + x.haveDc]) },
+      ], { xFmt: (v) => v, yFmt: (v) => nIN(v), xLabel: "year", yLabel: "charge points" })}
+      <div class="scroll" style="margin-top:8px;max-height:230px"><table class="t"><thead><tr><th>Year</th><th class="n">Growth</th><th class="n">E2W</th><th class="n">E3W</th><th class="n">E4W</th><th class="n">e-bus</th><th class="n">Public kWh/day</th><th class="n">AC need</th><th class="n">DC need</th></tr></thead><tbody>
+        ${F.rows.map(x => `<tr ${x.year === year ? 'style="background:var(--paper);font-weight:600"' : ""}><td>${x.year}</td><td class="n">${x.growth != null ? pct(x.growth, 0) : "—"}</td><td class="n">${nIN(x.stock.e2w)}</td><td class="n">${nIN(x.stock.e3w)}</td><td class="n">${nIN(x.stock.e4w)}</td><td class="n">${nIN(x.stock.ebus)}</td><td class="n">${nIN(x.publicKwhDay)}</td><td class="n">${nIN(x.needAc)}</td><td class="n">${nIN(x.needDc)}</td></tr>`).join("")}</tbody></table></div>
+      <details style="margin-top:8px"><summary class="mono" style="cursor:pointer;font-size:11.5px">Segment & charging assumptions (editable)</summary>
+        <div class="hdr"><span>Registrations relative to E2W</span></div>
+        <div class="grid2">${num("ratios", "E3W (e-rickshaw, cargo)", c.ratios.e3w, 0.01, "e3w")}${num("ratios", "E4W (cars)", c.ratios.e4w, 0.005, "e4w")}${num("ratios", "e-bus", c.ratios.ebus, 0.001, "ebus")}</div>
+        <div class="hdr"><span>kWh per vehicle per day · public share</span></div>
+        <div class="grid2">${["e2w", "e3w", "e4w", "ebus"].map(k => num("kwhDay", `${k.toUpperCase()} kWh/day`, c.kwhDay[k], 0.1, k) + num("publicShare", `${k.toUpperCase()} public share`, c.publicShare[k], 0.01, k)).join("")}</div>
+        <div class="grid2">${num("acKwhPerPointDay", "AC point delivers kWh/day", c.acKwhPerPointDay, 1)}${num("dcKwhPerPointDay", "DC point delivers kWh/day", c.dcKwhPerPointDay, 1)}${num("floorGrowth", "Trend growth floor by 2030", c.floorGrowth, 0.01)}${num("life", "Vehicle life (years)", c.life, 1)}</div>
+        <button class="linkbtn" id="fc-reset">Reset assumptions</button>
+      </details>
+      <div class="note">Base: <b>${esc(inp.src)}</b>, ${nIN(inp.reg)} E2W registered in 2024, ~${nIN(inp.stock)} since 2020. E3W/E4W/bus use national ratios to E2W (assumptions, editable). Charging points needed = public energy demand ÷ energy one point delivers per day, with 2W/3W on AC and cars/buses on DC. The sites figure is the spatial requirement: how many new locations reach the coverage target. Both are planning estimates, not forecasts of sales.</div>
+      <div style="display:flex;gap:6px"><button class="btn sm ghost" id="fc-csv">Export CSV</button></div>`;
+    const save = (patch) => { store.set("fcfg", { ...store.get("fcfg", {}), ...patch }); Audit.add("forecast.assumption", JSON.stringify(patch).slice(0, 120)); tabForecast(tb); };
+    $("#fc-scn").onchange = (e) => save({ scenario: e.target.value });
+    $("#fc-year").oninput = (e) => { store.set("fyear", +e.target.value); tabForecast(tb); };
+    $("#fc-target").onchange = (e) => { store.set("ftarget", +e.target.value); tabForecast(tb); };
+    $$("[data-fc]", tb).forEach(i => i.onchange = () => {
+      const k = i.dataset.fc, sub = i.dataset.sub, v = Math.max(0, +i.value || 0);
+      if (sub) save({ [k]: { ...c[k], [sub]: v } }); else save({ [k]: v });
+    });
+    $("#fc-reset").onclick = () => { store.set("fcfg", {}); tabForecast(tb); };
+    $("#fc-csv").onclick = () => download(`reachgrid_forecast_${slug(regionName())}.csv`, ["year,growth,e2w_stock,e3w_stock,e4w_stock,ebus_stock,public_kwh_day,ac_points_needed,dc_points_needed,ac_existing,dc_existing,ac_gap,dc_gap", ...F.rows.map(x => [x.year, x.growth ?? "", x.stock.e2w, x.stock.e3w, x.stock.e4w, x.stock.ebus, x.publicKwhDay, x.needAc, x.needDc, x.haveAc, x.haveDc, x.gapAc, x.gapDc].join(","))].join("\n"), "text/csv");
+  }
+
+
+  /* ================================================================== DESKTOP APP (Electron) */
+  let _deskSettings = null;
+  async function deskSettings(fresh) { if (!_deskSettings || fresh) _deskSettings = await DESK.settings(); return _deskSettings; }
+  function modal(title, html, { wide = false } = {}) {
+    const d = document.createElement("div"); d.className = "help rg-prompt rg-modal"; d.style.display = "grid";
+    d.innerHTML = `<div class="win" style="width:min(${wide ? 860 : 440}px,calc(100vw - 32px));max-height:calc(100vh - 60px);display:flex;flex-direction:column"><div class="tb"><span class="t">${esc(title)}</span><button aria-label="Close" data-x>×</button></div><div class="bd" style="overflow:auto">${html}</div></div>`;
+    (document.querySelector("#atlas .desk") || document.body).appendChild(d);
+    const close = () => d.remove(); $("[data-x]", d).onclick = close;
+    return { el: d, close };
+  }
+  /** sign-in before the workspace loads: automatic for the default owner, a form when sign-in is required */
+  async function desktopSignIn() {
+    if (DESK.session()) return;
+    const a = await DESK.autoSignIn(); if (a && a.ok) return;
+    $("#boot-step").textContent = "Sign in";
+    await new Promise((resolve) => {
+      const d = document.createElement("div"); d.className = "signin";
+      document.body.style.overflow = "hidden";
+      d.innerHTML = `<div class="win" style="width:min(380px,calc(100vw - 32px))"><div class="tb"><span class="t">ReachGrid India · sign in</span></div><div class="bd"><div style="display:flex;gap:12px;align-items:center;margin-bottom:8px"><img src="desktop-logo.png" width="52" height="52" alt=""><div><b style="font-family:var(--sans);font-size:18px">ReachGrid India</b><div class="sub">Sign-in is required on this computer.</div></div></div><form id="si"><label class="f">User<input id="si-u" autocomplete="username" required></label><label class="f">Password<input id="si-p" type="password" autocomplete="current-password"></label><div id="si-e" class="sub" style="color:var(--bad);min-height:16px"></div><button class="btn" style="width:100%;justify-content:center">Sign in</button></form></div></div>`;
+      document.body.appendChild(d); $("#si-u").focus();
+      $("#si").onsubmit = async (e) => { e.preventDefault(); const r = await DESK.signIn($("#si-u").value.trim(), $("#si-p").value); if (r.ok) { d.remove(); document.body.style.overflow = ""; resolve(); } else $("#si-e").textContent = r.error; };
+    });
+  }
+  function initDesktop() {
+    document.body.classList.add("desktop");
+    const ex = $("#ab-exit"); if (ex) { ex.href = "#"; ex.title = "About & settings"; ex.onclick = (e) => { e.preventDefault(); openSettings("about"); }; }
+    const tools = $(".ab-tools");
+    if (tools && !$("#ab-settings")) { const b = document.createElement("button"); b.className = "ab-btn"; b.id = "ab-settings"; b.title = "Settings (Ctrl+,)"; b.textContent = "⚙"; b.onclick = () => openSettings("account"); tools.appendChild(b); }
+    DESK.on("menu", async (cmd) => {
+      if (cmd === "settings") openSettings("account");
+      if (cmd === "settings:data") openSettings("data");
+      if (cmd === "tour") tourStart();
+      if (cmd === "help") $("#ab-help").click();
+      if (cmd === "pdf") { const r = await DESK.pdfReport(`reachgrid_${slug(S.did ? regionName() : S.sid ? regionName() : "india")}.pdf`); if (r && r.ok) toast("PDF saved: " + r.path); }
+      if (cmd === "project:save") { const r = await DESK.saveProject(); if (r.ok) toast("Project saved: " + r.path); }
+      if (cmd === "project:open") { const r = await DESK.openProject("merge"); if (r.ok) { toast("Project merged into this workspace"); rerunAll(); } else if (r.error) toast(r.error); }
+      if (cmd === "signout") { await DESK.signOut(); location.reload(); }
+    });
+    // background: tell the user when newer data has been published
+    setTimeout(async () => { const r = await DESK.checkData(); if (r && r.available) { DESK.notify("New ReachGrid data available", `Build ${r.remote} (you have ${r.current}). Settings → Data to update.`); toast(`New data build ${r.remote} available: Settings → Data`); } }, 6000);
+  }
+
+  async function openSettings(section = "account") {
+    const sess = DESK.session() || {}, st = await deskSettings(true), info = DESK.info(), admin = Gov.can("settings");
+    const tabs = [["account", "Account"], ["users", "Users"], ["api", "Local API"], ["data", "Data & maps"], ["updates", "Updates"], ["about", "About"]];
+    const m = modal("Settings", `<div class="tabs" style="margin:-12px -12px 10px;position:static">${tabs.map(([k, n]) => `<button data-st="${k}" aria-selected="${k === section}">${n}</button>`).join("")}</div><div id="st-body"></div>`, { wide: true });
+    const body = $("#st-body", m.el);
+    $$("[data-st]", m.el).forEach(b => b.onclick = () => { m.close(); openSettings(b.dataset.st); });
+    const note = (t, warn) => `<div class="note ${warn ? "warnnote" : ""}">${t}</div>`;
+    if (section === "account") {
+      body.innerHTML = `<div class="kpis"><div class="kpi"><b>${esc(sess.name || "—")}</b><span>signed in as ${esc(sess.user || "")}</span></div><div class="kpi"><b>${esc(ROLES[sess.role] || "—")}</b><span>role (enforced by the app)</span></div><div class="kpi"><b>${(sess.perms || []).length}</b><span>permissions</span></div></div>
+        <p class="sub">Permissions: ${(sess.perms || []).map(esc).join(", ") || "view only"}.</p>
+        <div class="hdr"><span>Switch user</span></div><form id="sw"><div class="grid2"><input id="sw-u" placeholder="user id"><input id="sw-p" type="password" placeholder="password"></div><button class="btn sm" style="margin-top:6px">Sign in as this user</button> <span id="sw-e" class="sub"></span></form>
+        <div class="hdr"><span>Your password</span></div><form id="pw"><div class="grid2"><input id="pw-o" type="password" placeholder="current (blank if none)"><input id="pw-n" type="password" placeholder="new (blank removes it)"></div><button class="btn sm ghost" style="margin-top:6px">Change password</button> <span id="pw-e" class="sub"></span></form>
+        <div style="margin-top:12px"><button class="btn sm ghost" id="so">Sign out</button></div>`;
+      $("#sw", body).onsubmit = async (e) => { e.preventDefault(); const r = await DESK.signIn($("#sw-u").value.trim(), $("#sw-p").value); if (r.ok) { toast("Signed in as " + r.session.name); m.close(); window.__syncRole && window.__syncRole(); renderInspector(); } else $("#sw-e").textContent = r.error; };
+      $("#pw", body).onsubmit = async (e) => { e.preventDefault(); const r = await DESK.changePassword($("#pw-o").value, $("#pw-n").value); $("#pw-e").textContent = r.ok ? "Password updated" : r.error; };
+      $("#so", body).onclick = async () => { await DESK.signOut(); location.reload(); };
+    }
+    if (section === "users") {
+      const users = await DESK.users();
+      body.innerHTML = `${admin ? "" : note("Only an Admin can manage users.", true)}
+        <table class="t"><thead><tr><th>User</th><th>Name</th><th>Role</th><th>Password</th><th></th></tr></thead><tbody>${users.map(u => `<tr><td class="mono">${esc(u.id)}</td><td>${esc(u.name)}</td><td>${esc(ROLES[u.role])}</td><td>${u.hasPassword ? "set" : "<span class='tag imp'>none</span>"}</td><td>${admin ? `<button class="linkbtn" data-ud="${esc(u.id)}">remove</button>` : ""}</td></tr>`).join("")}</tbody></table>
+        ${admin ? `<div class="hdr"><span>Add or update a user</span></div><form id="uf"><div class="grid2"><input id="uf-id" placeholder="user id (e.g. priya)" required><input id="uf-n" placeholder="display name"><select id="uf-r"><option value="viewer">Viewer</option><option value="analyst" selected>Analyst</option><option value="admin">Admin</option></select><input id="uf-p" type="password" placeholder="password (required to sign in)"></div><button class="btn sm" style="margin-top:6px">Save user</button> <span id="uf-e" class="sub"></span></form>
+        <div class="hdr"><span>Sign-in policy</span></div><label class="lgrow"><input type="checkbox" id="req" ${st.requireSignIn ? "checked" : ""}> require a password at start-up (set an Admin password first)</label><span id="req-e" class="sub"></span>` : ""}
+        <p class="sub">Roles are enforced by the desktop app's main process: a Viewer cannot change evidence, the portfolio or reviews even from developer tools. Every action is written to the audit log on disk.</p>`;
+      if (admin) {
+        $("#uf", body).onsubmit = async (e) => { e.preventDefault(); const r = await DESK.saveUser({ id: $("#uf-id").value.trim(), name: $("#uf-n").value.trim(), role: $("#uf-r").value, password: $("#uf-p").value }); if (r.ok) { m.close(); openSettings("users"); toast("User saved"); } else $("#uf-e").textContent = r.error; };
+        $$("[data-ud]", body).forEach(b => b.onclick = async () => { const r = await DESK.deleteUser(b.dataset.ud); if (r.ok) { m.close(); openSettings("users"); } else toast(r.error); });
+        $("#req", body).onchange = async (e) => { const r = await DESK.updateSettings({ requireSignIn: e.target.checked }); if (!r.ok) { e.target.checked = !e.target.checked; $("#req-e").textContent = r.error; } else toast("Saved"); };
+      }
+    }
+    if (section === "api") {
+      const curl = `curl -H "X-API-Key: ${admin ? st.apiKey : "<key>"}" ${st.apiUrl}/geographies/jharkhand.east-singhbhum/baseline`;
+      body.innerHTML = `<p>The scenario API runs on a real HTTP server inside the app while it is open, so scripts, Python, Excel Power Query or curl on this computer can call it.</p>
+        <div class="kpis"><div class="kpi"><b class="mono" style="font-size:13px">${esc(st.apiUrl)}</b><span>base URL (this computer only)</span></div><div class="kpi"><b>${st.apiWrite ? "read + write" : "read only"}</b><span>API-key access</span></div></div>
+        ${admin ? `<label class="f">API key<input type="text" readonly value="${esc(st.apiKey)}" id="ak-v" onclick="this.select()"></label><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ghost" id="ak-c">Copy key</button><button class="btn sm ghost" id="ak-r">Rotate key</button></div>
+          <label class="lgrow" style="margin-top:8px"><input type="checkbox" id="ak-w" ${st.apiWrite ? "checked" : ""}> allow API-key clients to create and delete scenarios</label>
+          <label class="f">Fixed port (0 = automatic, applies after restart)<input type="number" id="ak-p" min="0" max="65535" value="${st.apiPort || 0}"></label>` : note("Only an Admin can see the API key.", true)}
+        <div class="hdr"><span>Example</span></div><pre class="out" style="white-space:pre-wrap">${esc(curl)}</pre>
+        <button class="btn sm" id="ak-doc">Open API console</button>`;
+      $("#ak-doc", body).onclick = () => DESK.openDoc("api.html");
+      if (admin) {
+        $("#ak-c", body).onclick = () => { navigator.clipboard.writeText(st.apiKey); toast("Copied"); };
+        $("#ak-r", body).onclick = async () => { await DESK.rotateApiKey(); m.close(); openSettings("api"); toast("New key issued; the old one stops working"); };
+        $("#ak-w", body).onchange = async (e) => { const r = await DESK.updateSettings({ apiWrite: e.target.checked }); toast(r.ok ? "Saved" : r.error); };
+        $("#ak-p", body).onchange = async (e) => { const r = await DESK.updateSettings({ apiPort: Math.max(0, Math.min(65535, +e.target.value || 0)) }); toast(r.ok ? "Saved: restart the app to use the new port" : r.error); };
+      }
+    }
+    if (section === "data") {
+      const tc = await DESK.tileCache();
+      const reg = S.did ? curDistrict() : S.sid ? curState() : null;
+      body.innerHTML = `<div class="kpis"><div class="kpi"><b class="mono" style="font-size:13px">${esc(INDIA.version)}</b><span>data build in use</span></div><div class="kpi"><b>${(tc.bytes / 1e6).toFixed(1)} MB</b><span>${nIN(tc.files)} map tiles cached offline</span></div><div class="kpi"><b>${INDIA.grid ? (INDIA.grid.kind === "substation" ? "OSM substations" : "WRI plants") : "—"}</b><span>grid proxy (${INDIA.grid ? nIN(INDIA.grid.points.length / 3) : 0} points)</span></div></div>
+        <div class="hdr"><span>Data updates</span></div><p class="sub">The published data rebuilds weekly from the public sources. Updates download into your profile; the bundled data stays as a fallback.</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" id="du-c">Check for new data</button><button class="btn sm ghost" id="du-r" ${admin ? "" : "disabled"}>Revert to bundled data</button></div><div id="du-o" class="sub" style="margin-top:6px"></div>
+        <div class="hdr"><span>Live grid layer</span></div><p class="sub">Fetch every power substation in India from OpenStreetMap (Overpass) and use it for grid proximity in feasibility scores, instead of the power-plant proxy. Takes 1–5 minutes.</p>
+        <button class="btn sm" id="gr" ${admin ? "" : "disabled"}>Refresh substations from OpenStreetMap</button><div id="gr-o" class="sub" style="margin-top:6px"></div>
+        <div class="hdr"><span>Offline street maps</span></div><p class="sub">Every tile you view is cached. To work offline in the field, download a whole region in advance.</p>
+        <div class="grid2"><label class="f">Region<select id="of-reg">${reg ? `<option value="cur">${esc(regionName())}</option>` : ""}<option value="view">Current map view</option></select></label><label class="f">Detail (max zoom)<select id="of-z"><option value="11">Overview (z ≤ 11)</option><option value="13" selected>Town level (z ≤ 13)</option><option value="15">Street level (z ≤ 15)</option></select></label></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" id="of-go">Download for offline</button><button class="btn sm ghost" id="of-x">Cancel</button><button class="btn sm ghost" id="of-clr">Clear cache</button></div><div id="of-o" class="sub" style="margin-top:6px"></div>
+        <div class="hdr"><span>Routing</span></div><label class="lgrow"><input type="checkbox" id="osrm" ${st.osrmRouting ? "checked" : ""} ${admin ? "" : "disabled"}> corridor checks use real street routing (OSRM) when online, highway graph otherwise</label>
+        <div class="hdr"><span>Your files</span></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ghost" id="pj-s">Save project…</button><button class="btn sm ghost" id="pj-o">Open project…</button><button class="btn sm ghost" id="ud">Open data folder</button></div>`;
+      $("#du-c", body).onclick = async () => {
+        $("#du-o").textContent = "Checking…"; const r = await DESK.checkData();
+        if (r.error) { $("#du-o").textContent = "Could not check: " + r.error; return; }
+        if (!r.available) { $("#du-o").textContent = `Up to date (${r.current}).`; return; }
+        $("#du-o").innerHTML = `New build <b>${esc(r.remote)}</b> available (you have ${esc(r.current)}). ${admin ? `<button class="btn sm" id="du-a">Download and apply</button>` : "Ask an Admin to update."}`;
+        if (admin) $("#du-a").onclick = async () => { DESK.on("data:progress", (i, n) => { $("#du-o").textContent = `Downloading ${i}/${n} files…`; }); const a = await DESK.applyData(); if (a.error) $("#du-o").textContent = "Failed: " + a.error; else { $("#du-o").textContent = `Updated to ${a.build}. Reloading…`; setTimeout(() => location.reload(), 900); } };
+      };
+      $("#du-r", body).onclick = async () => { const r = await DESK.revertData(); if (r.error) toast(r.error); else { toast("Back to bundled data " + r.build); setTimeout(() => location.reload(), 600); } };
+      $("#gr", body).onclick = async () => { DESK.on("grid:progress", (t) => { $("#gr-o").textContent = t; }); $("#gr-o").textContent = "Starting…"; const r = await DESK.refreshGrid(); if (r.error) $("#gr-o").textContent = "Failed: " + r.error; else { $("#gr-o").textContent = `${nIN(r.substations)} substations loaded. Reloading…`; setTimeout(() => location.reload(), 900); } };
+      $("#of-go", body).onclick = async () => {
+        let bb;
+        if ($("#of-reg").value === "cur" && reg) { const geoms = S.did ? [curDistrict().geom] : curState().districts.map(d => d.geom); bb = [180, 90, -180, -90]; geoms.forEach(g => { const b = E.bbox(g); bb = [Math.min(bb[0], b[0]), Math.min(bb[1], b[1]), Math.max(bb[2], b[2]), Math.max(bb[3], b[3])]; }); }
+        else { const b = map.getBounds(); bb = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()]; }
+        DESK.on("tiles:progress", (d, n, f) => { $("#of-o").textContent = `${nIN(d)} / ${nIN(n)} tiles${f ? ` · ${f} failed` : ""}`; });
+        $("#of-o").textContent = "Starting…";
+        const r = await DESK.prefetchTiles(bb, 6, +$("#of-z").value);
+        $("#of-o").textContent = r.error ? "Failed: " + r.error : `Done: ${nIN(r.total)} tiles available offline${r.failed ? ` (${r.failed} failed; retry when online)` : ""}.`;
+      };
+      $("#of-x", body).onclick = () => DESK.cancelTiles();
+      $("#of-clr", body).onclick = async () => { const r = await DESK.clearTiles(); $("#of-o").textContent = `Cache cleared (${r.files} files).`; };
+      $("#osrm", body).onchange = async (e) => { const r = await DESK.updateSettings({ osrmRouting: e.target.checked }); _deskSettings = null; toast(r.ok ? "Saved" : r.error); };
+      $("#pj-s", body).onclick = async () => { const r = await DESK.saveProject(); if (r.ok) toast("Project saved: " + r.path); };
+      $("#pj-o", body).onclick = async () => { const r = await DESK.openProject("merge"); if (r.ok) { toast("Project merged"); m.close(); rerunAll(); } else if (r.error) toast(r.error); };
+      $("#ud", body).onclick = () => DESK.openUserData();
+    }
+    if (section === "updates") {
+      body.innerHTML = `<div class="kpis"><div class="kpi"><b>${esc(info.version)}</b><span>app version</span></div><div class="kpi"><b>${esc(INDIA.version)}</b><span>data build</span></div><div class="kpi"><b>${info.packaged ? "installed" : "development"}</b><span>mode</span></div></div>
+        <label class="lgrow"><input type="checkbox" id="au" ${st.autoUpdate ? "checked" : ""} ${admin ? "" : "disabled"}> check for app updates at start-up (downloads in the background, installs on restart)</label>
+        <button class="btn sm" id="au-c">Check for app updates now</button>`;
+      $("#au", body).onchange = async (e) => { const r = await DESK.updateSettings({ autoUpdate: e.target.checked }); toast(r.ok ? "Saved" : r.error); };
+      $("#au-c", body).onclick = () => DESK.checkAppUpdate();
+    }
+    if (section === "about") {
+      body.innerHTML = `<div style="display:flex;gap:16px;align-items:center"><img src="desktop-logo.png" width="72" height="72" alt=""><div><div class="big-name">ReachGrid India</div><div class="sub">EV charging access intelligence & investment optimisation · v${esc(info.version)}</div></div></div>
+        <p>Team GoingAgain · Team ID TM-7E9065875FC · Techfest 2026–27 EV Infra & Green Mobility AI Challenge.</p>
+        <p class="sub">Data build ${esc(INDIA.version)} · local API ${esc(st.apiUrl)} · profile folder ${esc(info.userData)}</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ghost" data-doc="methodology.html">Methodology</button><button class="btn sm ghost" data-doc="business.html">Business model</button><button class="btn sm ghost" data-doc="api.html">API</button><button class="btn sm ghost" id="ab-tour">Guided demo</button></div>`;
+      $$("[data-doc]", body).forEach(b => b.onclick = () => DESK.openDoc(b.dataset.doc));
+      $("#ab-tour", body).onclick = () => { m.close(); tourStart(); };
+    }
+  }
+
+  /** end-to-end checks the Windows build runs inside the installed app (--smoke-test) */
+  async function desktopSelfTest() {
+    const out = [], ok = (name, pass, detail) => out.push({ name, pass: !!pass, detail: detail == null ? "" : String(detail) });
+    try {
+      ok("data loaded", INDIA && INDIA.states.length === 36 && INDIA.totals.chargers > 20000, `${INDIA.states.length} states, ${INDIA.totals.chargers} chargers`);
+      await goDistrict("jharkhand.east-singhbhum");
+      const A = S.analysis; ok("district analysis", A && A.plans.greedy.metrics.coverage >= A.ctx.base.coverage, A && `${pct(A.ctx.base.coverage)} → ${pct(A.plans.greedy.metrics.coverage)}`);
+      for (const [pass, name, detail] of selfTests()) ok("self-test: " + name, pass, detail);
+      for (const t of ["plan", "forecast", "compare", "validate", "evidence", "portfolio", "chargers", "ledger"]) { S.tab = t; renderInspector(); await new Promise(r => setTimeout(r, 150)); ok("tab renders: " + t, $("#tabbody") && $("#tabbody").textContent.length > 40, t); }
+      const curve = await runJob("budgetCurve"); ok("background job (worker)", Array.isArray(curve) && curve.length === 8, curve && curve.length);
+      const ev0 = Evidence.all(); const wrote = store.set("evidence", [...ev0, { lat: "22.8", lng: "86.2", name: "smoke", status: "ok" }]); const back = Evidence.all();
+      ok("protected store round-trip (admin)", wrote && back.length === ev0.length + 1, back.length); store.set("evidence", ev0);
+      const v = await Audit.verify(); ok("audit log verifies", v && v.ok, JSON.stringify(v));
+      const api = await fetch("/api/v1/geographies", { headers: { "X-Session-Token": (DESK.session() || {}).token || "" } }); ok("local API from the app", api.status === 200, api.status);
+      S.mode = "corridor"; S.corridor.from = findPlace("Delhi"); S.corridor.to = findPlace("Jaipur"); goIndia(); await runCorridor();
+      ok("corridor check", S.route && S.route.g && S.route.g.total > 200, S.route && S.route.g && `${S.route.g.total.toFixed(0)} km via ${S.route.r.engine}`);
+      S.mode = "atlas"; S.route = null; clearLayers("route");
+      const t = await fetch("/tiles/a/5/23/13.png").then(r => r.status).catch(() => 0); ok("tile proxy reachable (cache or network)", true, `status ${t}${t === 504 ? " (offline: acceptable)" : ""}`);
+    } catch (e) { ok("self-test run", false, e.stack || e.message); }
+    return out;
+  }
+
   /* ================================================================== guided demo tour (§15 walkthrough) */
   const TOUR = [
     { sel: ".appbar", title: "ReachGrid workspace", text: "A decision engine for public EV charging: real chargers, census demand and a budget optimiser for every state and district. Use Next, or the arrow keys.", run: () => { S.mode = "atlas"; return goIndia(); } },
@@ -1539,6 +1834,7 @@
     { sel: "#w-insp", title: "Drill into a district", text: "East Singhbhum, Jharkhand: 22.9 lakh people, 22 listed charging sites. The inspector shows provenance, the distance distribution and the towns with no nearby charger.", run: () => goDistrict("jharkhand.east-singhbhum") },
     { sel: "#w-insp", title: "Plan new chargers", text: "Choose an objective (coverage, equity, corridor or commercial), a distance threshold, a budget and hardware. Four planning objectives and two baselines compete on the scenario board.", run: () => { S.tab = "plan"; S.planKey = "greedy"; renderInspector(); drawPlan(true); } },
     { sel: "#map", title: "Where to build, and why", text: "Numbered pink pins are the greedy picks in order. Blue cells are people newly brought within reach. Click a pin for its score breakdown, confidence, commercial screen and review controls." },
+    { sel: "#w-insp", title: "How many chargers by 2030?", text: "The Forecast tab projects the EV fleet from real VAHAN registrations (2020–2024 trend), adds 3W, car and bus segments, and converts public charging demand into AC and DC charge points needed each year, against the existing inventory.", run: () => { S.tab = "forecast"; renderInspector(); } },
     { sel: "#w-insp", title: "Compare methods", text: "Budget curve (diminishing returns), greedy vs local search vs an exact integer programme with its LP bound, and a nine-variant sensitivity analysis. Heavy jobs run in a background worker.", run: () => { S.tab = "compare"; renderInspector(); } },
     { sel: "#w-insp", title: "Validate", text: "A holdout backtest hides real chargers and checks whether the method finds them again. It also shows equity metrics and runs the proposal's acceptance tests live in the browser.", run: () => { S.tab = "validate"; renderInspector(); } },
     { sel: "#w-insp", title: "Field evidence & VAHAN", text: "Upload site surveys, DISCOM capacity or land status: blocked sites drop out and real costs replace assumptions. Upload VAHAN EV registrations to replace the 2011 proxy.", run: () => { S.tab = "evidence"; renderInspector(); } },
@@ -1586,9 +1882,10 @@
     const btn = $("#ab-docs"), menu = $(".ab-menu", docs);
     btn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute("aria-expanded", !menu.hidden); };
     document.addEventListener("click", () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); });
-    $("#ab-src").onclick = (e) => { e.preventDefault(); location.href = "./#sources"; };
+    $("#ab-src").onclick = (e) => { e.preventDefault(); if (DESK) DESK.openDoc("methodology.html"); else location.href = "./#sources"; };
   }
   function registerAPI() {
+    if (DESK) return;   // the desktop app serves the API over a real local HTTP server
     if ("serviceWorker" in navigator && isSecureContext && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => { });
   }
 

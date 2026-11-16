@@ -32,3 +32,20 @@ node decode_cities.js raw/cities.pbf raw/cities_in.json
 echo "[5] Census 2011 district polygons (DataMeet, CC BY 4.0)"
 mkdir -p raw/c2011
 for e in shp dbf shx prj; do curl -fsSL -o raw/c2011/2011_Dist.$e "$GH/datameet/maps/master/Districts/Census_2011/2011_Dist.$e"; done
+
+echo "[6] VAHAN electric and total two-wheeler registrations by state and month (2020-2024 exports)"
+mkdir -p raw/vahan
+for y in 2020-21 2021-22 2022-23 2023-24; do
+  curl -fsSL -o "raw/vahan/${y}ev.csv" "$GH/narayanamalla/PS-EV-peneteration-in-india/main/data/raw/${y}ev.csv"
+  curl -fsSL -o "raw/vahan/${y}.csv" "$GH/narayanamalla/PS-EV-peneteration-in-india/main/data/raw/${y}.csv"
+done
+
+echo "[7] Electricity infrastructure: WRI power plants (fallback) and OpenStreetMap substations (preferred)"
+curl -fsSL -o raw/gppd.csv "$GH/wri/global-power-plant-database/master/output_database/global_power_plant_database.csv"
+Q='[out:json][timeout:900];area["ISO3166-1"="IN"][admin_level=2]->.in;(node["power"="substation"](area.in);way["power"="substation"](area.in););out center tags;'
+for ep in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter; do
+  if curl -fsSL --max-time 1000 --data-urlencode "data=$Q" -o raw/osm_substations.tmp "$ep" && python3 -c "import json,sys; d=json.load(open('raw/osm_substations.tmp')); sys.exit(0 if len(d.get('elements',[]))>1000 else 1)"; then
+    mv raw/osm_substations.tmp raw/osm_substations.json; echo "  OSM substations from $ep"; break
+  fi
+  echo "  $ep failed; trying next"
+done

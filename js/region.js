@@ -27,6 +27,17 @@
     return idx;
   }
 
+  /** electricity-infrastructure points (substations or power plants) from india.grid */
+  const gridCache = new Map();
+  function gridIndex(india) {
+    if (!india.grid) return null;
+    if (gridCache.has(india)) return gridCache.get(india);
+    const a = india.grid.points, pts = [];
+    for (let i = 0; i < a.length; i += 3) pts.push({ lat: a[i] / 1e4, lng: a[i + 1] / 1e4, size: a[i + 2] });
+    const idx = new E.GridIndex(pts, 0.25); idx.kind = india.grid.kind;
+    gridCache.set(india, idx); return idx;
+  }
+
   function regionDistricts(stateData, districtIds) {
     const want = districtIds ? new Set(districtIds) : null;
     return stateData.districts.filter(d => !want || want.has(d.id));
@@ -54,6 +65,7 @@
     const base = metric === "network" ? A().networkBaseline(cells, idx, graph, opts) : E.baseline(cells, idx, opts);
     return {
       districts: ds, cells, vehicleRate, cellDistrict, places, geoms, roads: rl, bbox: bb, chargerIdx: idx, base, metric, graph,
+      gridIdx: opts.useGrid === false ? null : gridIndex(india),
       censusFlag: popTot && observed / popTot >= 0.9 ? "observed" : "imputed",
       pressureSource: evUploaded ? `uploaded EV registrations (${evUploaded}/${ds.length} districts)` : "Census 2011 vehicle ownership proxy",
     };
@@ -69,6 +81,6 @@
     return { ctx, cands };
   }
 
-  const API = { chargerIndex, buildContext, analyse };
+  const API = { chargerIndex, gridIndex, buildContext, analyse };
   if (isNode) module.exports = API; else root.RGRegion = API;
 })(typeof self !== "undefined" ? self : this);

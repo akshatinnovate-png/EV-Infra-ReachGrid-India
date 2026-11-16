@@ -63,7 +63,7 @@ t("greedy coverage gain ≥ score-only baseline at equal budget (reported, not a
   assert(p.greedy.metrics.coverage >= ctx.base.coverage);
 });
 t("missing score components are renormalised, never zero-filled", () => {
-  const { cands } = Rg.analyse(args);
+  const { cands } = Rg.analyse({ ...args, opts: { ...opts, useGrid: false } });
   const h = cands.find(c => c.missing.includes("feasibility"));
   assert(h, "expected a hotspot candidate with unknown feasibility");
   const w = opts.weights, avail = Object.keys(h.comp);

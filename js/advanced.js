@@ -281,6 +281,79 @@
     return { n: r.length, k, r2: ssTot ? 1 - ssRes / ssTot : null, mape };
   }
 
-  const API = { rng, parseCSV, dijkstra, networkBaseline, networkReach, applyEvidence, budgetCurve, localSearch, ilp, compareOptimisers, backtest, commercialEstimate, recalibrate };
+  /* ---------------- multi-year fleet & charger requirement forecast ---------------- */
+  // Segment model. E2W comes from VAHAN; other segments use editable ratios to E2W registrations.
+  const FORECAST_DEFAULTS = {
+    scenario: "trend",          // trend | moderate | conservative | custom
+    customGrowth: 0.25,
+    floorGrowth: 0.12,          // trend growth decays linearly to this by the horizon
+    horizon: 2030,
+    ratios: { e3w: 0.55, e4w: 0.09, ebus: 0.003 },              // annual registrations relative to E2W (assumption)
+    kwhDay: { e2w: 1.2, e3w: 7, e4w: 6, ebus: 120 },              // energy per vehicle per day (assumption)
+    publicShare: { e2w: 0.15, e3w: 0.35, e4w: 0.25, ebus: 0.10 },  // share of energy from public chargers (assumption)
+    acKwhPerPointDay: 44,       // 7.4 kW × 6 h
+    dcKwhPerPointDay: 300,      // 60 kW × 5 h
+    life: 10,                   // years a vehicle stays in the fleet
+  };
+  /** inputs: e2wReg2024 (registrations in 2024), e2wStock (registered 2020–2024), cagr (2021–24 trend),
+   *  existing {ac, dc} charge points. Returns one row per year 2024..horizon. */
+  function forecast(inp, cfg = {}) {
+    const c = { ...FORECAST_DEFAULTS, ...cfg, ratios: { ...FORECAST_DEFAULTS.ratios, ...(cfg.ratios || {}) }, kwhDay: { ...FORECAST_DEFAULTS.kwhDay, ...(cfg.kwhDay || {}) }, publicShare: { ...FORECAST_DEFAULTS.publicShare, ...(cfg.publicShare || {}) } };
+    const segs = ["e2w", "e3w", "e4w", "ebus"];
+    const growthFor = (y) => {
+      if (c.scenario === "moderate") return 0.25;
+      if (c.scenario === "conservative") return 0.12;
+      if (c.scenario === "custom") return c.customGrowth;
+      const g0 = Math.max(c.floorGrowth, Math.min(0.8, inp.cagr == null ? 0.3 : inp.cagr));
+      const f = Math.min(1, (y - 2025) / Math.max(1, c.horizon - 2025));
+      return g0 + (c.floorGrowth - g0) * f;
+    };
+    const ratio = { e2w: 1, ...c.ratios };
+    let reg = inp.e2wReg2024 || 0;
+    const stock = Object.fromEntries(segs.map(s => [s, (inp.e2wStock || 0) * ratio[s]]));
+    const regsHistory = [];
+    const rows = [];
+    for (let y = 2024; y <= c.horizon; y++) {
+      if (y > 2024) {
+        const g = growthFor(y); reg = reg * (1 + g);
+        for (const s of segs) stock[s] += reg * ratio[s];
+        regsHistory.push(reg);
+        if (regsHistory.length > c.life) for (const s of segs) stock[s] -= regsHistory[regsHistory.length - 1 - c.life] * ratio[s];
+      }
+      const pub = Object.fromEntries(segs.map(s => [s, stock[s] * c.kwhDay[s] * c.publicShare[s]]));
+      const acKwh = pub.e2w + pub.e3w, dcKwh = pub.e4w + pub.ebus;
+      const needAc = Math.ceil(acKwh / c.acKwhPerPointDay), needDc = Math.ceil(dcKwh / c.dcKwhPerPointDay);
+      rows.push({
+        year: y, growth: y > 2024 ? growthFor(y) : null, e2wReg: Math.round(reg),
+        stock: Object.fromEntries(segs.map(s => [s, Math.round(stock[s])])), publicKwhDay: Math.round(acKwh + dcKwh),
+        needAc, needDc, haveAc: inp.existing.ac, haveDc: inp.existing.dc,
+        gapAc: Math.max(0, needAc - inp.existing.ac), gapDc: Math.max(0, needDc - inp.existing.dc),
+      });
+    }
+    return { rows, config: c };
+  }
+  /** existing charge points: published AC/DC guns + unknown sites at the average guns per known site */
+  function existingPoints(inv) {
+    if (!inv) return { ac: 0, dc: 0, imputed: 0 };
+    const sites = Object.values(inv.tiers).reduce((a, b) => a + b, 0);
+    const unknown = Math.max(0, sites - inv.points_known_sites), per = inv.points_per_site || 2;
+    const known = inv.ac_points + inv.dc_points, acShare = known ? inv.ac_points / known : 0.5;
+    const imp = unknown * per;
+    return { ac: Math.round(inv.ac_points + imp * acShare), dc: Math.round(inv.dc_points + imp * (1 - acShare)), imputed: Math.round(imp) };
+  }
+  /** sites the greedy needs to lift coverage to a target share (spatial requirement, independent of year) */
+  function sitesForCoverage(ctx, cands, opts, target = 0.9) {
+    const g = E.greedy(ctx.cells, ctx.base, cands, { ...opts, budgetLakh: 1e9 });
+    let d = Float64Array.from(ctx.base.dist), cov = ctx.base.covered, cost = 0, n = 0;
+    if (ctx.base.coverage >= target) return { sites: 0, cost: 0, reached: ctx.base.coverage, target };
+    for (const c of g.selected) {
+      for (const [i, km] of c.reach) if (km < d[i]) { if (d[i] > opts.tauKm && km <= opts.tauKm) cov += ctx.cells[i][2]; d[i] = km; }
+      n++; cost += c.cost;
+      if (cov / ctx.base.total >= target) return { sites: n, cost, reached: cov / ctx.base.total, target };
+    }
+    return { sites: n, cost, reached: cov / ctx.base.total, target, capped: true };
+  }
+
+  const API = { rng, parseCSV, FORECAST_DEFAULTS, forecast, existingPoints, sitesForCoverage, dijkstra, networkBaseline, networkReach, applyEvidence, budgetCurve, localSearch, ilp, compareOptimisers, backtest, commercialEstimate, recalibrate };
   if (isNode) module.exports = API; else root.RGAdvanced = API;
 })(typeof self !== "undefined" ? self : this);

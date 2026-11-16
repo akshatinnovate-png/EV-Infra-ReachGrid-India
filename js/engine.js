@@ -216,12 +216,21 @@
       }
       const localChargers = ctx.chargerIdx.within(c.lat, c.lng, tau / det).length;
       let road = Infinity; for (const l of majorRoads) road = Math.min(road, distToLine(c.lat, c.lng, l));
+      // electricity infrastructure proximity: substations (preferred) or power plants (fallback proxy)
+      let gridKm = null, gridScore = null;
+      if (ctx.gridIdx) {
+        const reachKm = ctx.gridIdx.kind === "substation" ? 15 : 80;
+        const g = ctx.gridIdx.nearest(c.lat, c.lng, 150);
+        gridKm = g ? g.d : null; gridScore = g ? Math.max(0, 1 - g.d / reachKm) : 0;
+      }
+      const hostFeas = c.host === "highway" ? (c.placeDist != null && c.placeDist < 3 ? 0.75 : 0.6) : c.host === "town" ? 0.65 : null;
       c.raw = {
         gap, equity,
         pressure: vh / (1 + localChargers),
         vehicleHH: vh, localChargers,
         corridor: Math.max(0, 1 - road / 10), roadKm: road,
-        feasibility: c.evFeas != null ? c.evFeas : c.host === "highway" ? (c.placeDist != null && c.placeDist < 3 ? 0.75 : 0.6) : c.host === "town" ? 0.65 : null,
+        feasibility: c.evFeas != null ? c.evFeas : gridScore == null ? hostFeas : hostFeas == null ? 0.8 * gridScore : 0.6 * hostFeas + 0.4 * gridScore,
+        gridKm, gridScore,
       };
       c.cost = siteCost(c, opts);
     }
@@ -249,7 +258,7 @@
     parts.push(["Charger listings nearby", 0.4 + 0.6 * ver, near.length ? `${Math.round(ver * 100)}% of ${near.length} nearby sites in ≥2 sources` : "no nearby listings"]);
     parts.push(["Distance metric", ctx.metric === "network" ? 0.7 : 0.6, ctx.metric === "network" ? "routed on coarse highway graph" : "straight line × detour factor (no road routing)"]);
     parts.push(["Host feasibility", c.evidence ? (c.evidence.status === "ok" ? 0.95 : 0.5) : c.raw.feasibility == null ? 0.3 : 0.6,
-      c.evidence ? `field evidence: ${c.evidence.status}${c.evidence.grid_kva ? `, ${c.evidence.grid_kva} kVA` : ""}${c.evidence.land ? `, land ${c.evidence.land}` : ""}` : c.raw.feasibility == null ? "host unknown, needs survey" : "host type inferred, grid capacity unknown"]);
+      c.evidence ? `field evidence: ${c.evidence.status}${c.evidence.grid_kva ? `, ${c.evidence.grid_kva} kVA` : ""}${c.evidence.land ? `, land ${c.evidence.land}` : ""}` : c.raw.feasibility == null ? "host unknown, needs survey" : `host ${c.host === "hotspot" ? "unknown" : "inferred"}${c.raw.gridKm != null ? `; nearest ${ctx.gridIdx.kind === "substation" ? "substation" : "power plant"} ${c.raw.gridKm.toFixed(1)} km` : ""}; spare capacity unknown`]);
     const v = parts.reduce((a, p) => a + p[1], 0) / parts.length;
     return { value: v, grade: v >= 0.72 ? "High" : v >= 0.55 ? "Medium" : "Low", parts };
   }

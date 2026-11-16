@@ -46,7 +46,7 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site
-          cp -r index.html api.html methodology.html business.html sw.js .nojekyll css js data media vendor _site/
+          mkdir -p _site/data _site/css && cp index.html methodology.html business.html desktop-logo.png .nojekyll _site/ && cp css/app.css css/pages.css css/site.css _site/css/ && cp data/india.js _site/data/ && cp -r media _site/
           ls _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

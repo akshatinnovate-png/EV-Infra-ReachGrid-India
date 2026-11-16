@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ReachGrid mark: a map pin built from a hex grid cell, with a charge bolt, on a halftone pink tile -->
+  <defs>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+      <circle cx="11" cy="11" r="3.2" fill="#1b1b1d" fill-opacity=".22"/>
+    </pattern>
+    <clipPath id="tile"><rect x="16" y="16" width="480" height="480" rx="104"/></clipPath>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="#f2879f"/>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="url(#dots)"/>
+  <g clip-path="url(#tile)">
+    <circle cx="420" cy="430" r="150" fill="#e44fbf" fill-opacity=".55"/>
+  </g>
+  <!-- hex pin -->
+  <path d="M256 70 L398 152 L398 316 L256 452 L114 316 L114 152 Z" fill="#1b1b1d"/>
+  <path d="M256 104 L368 169 L368 300 L256 407 L144 300 L144 169 Z" fill="#ffffff"/>
+  <!-- reach rings -->
+  <circle cx="256" cy="236" r="96" fill="none" stroke="#e44fbf" stroke-width="10" stroke-dasharray="22 14"/>
+  <!-- bolt -->
+  <path d="M276 140 L198 252 L250 252 L232 336 L314 216 L262 216 Z" fill="#1b1b1d"/>
+  <rect x="16" y="16" width="480" height="480" rx="104" fill="none" stroke="#1b1b1d" stroke-width="14"/>
+</svg>

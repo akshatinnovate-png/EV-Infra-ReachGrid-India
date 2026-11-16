@@ -1,0 +1,137 @@
+name: Desktop app (Windows)
+
+# Builds the Windows installer, verifies it on a real Windows machine, and publishes it as a GitHub Release.
+# Verification: unit tests → build → smoke test of the unpacked app (incl. network features) → silent install →
+# shortcut checks → smoke test of the installed app → silent uninstall. Nothing is published if any step fails.
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", "js/**", "css/**", "data/**", "vendor/**", "media/**", "*.html", "tests/**", ".github/workflows/desktop.yml"]
+  workflow_run:
+    workflows: ["Refresh data"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-build
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Engine acceptance tests
+        run: |
+          node tests/engine.test.js
+          node tests/advanced.test.js
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      - name: Build installer
+        working-directory: desktop
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Smoke test (unpacked app, with network checks)
+        working-directory: desktop
+        run: |
+          $env:REACHGRID_USER_DIR = "$env:RUNNER_TEMP\rg-unpacked"
+          $env:REACHGRID_SMOKE_NETWORK = "1"
+          $out = "$env:RUNNER_TEMP\smoke-unpacked.json"
+          $p = Start-Process -FilePath "dist\win-unpacked\ReachGrid India.exe" -ArgumentList "--smoke-test=$out" -PassThru
+          if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force; throw "smoke test timed out" }
+          Get-Content $out
+          $r = Get-Content $out | ConvertFrom-Json
+          $r.results | Where-Object { -not $_.pass } | ForEach-Object { Write-Host "::error::FAILED $($_.name): $($_.detail)" }
+          if ($p.ExitCode -ne 0 -or -not $r.pass) { throw "unpacked smoke test failed ($($p.ExitCode))" }
+          Write-Host "$(@($r.results).Count) checks passed"
+
+      - name: Silent install
+        working-directory: desktop
+        run: |
+          $p = Start-Process -FilePath "dist\ReachGrid-India-Setup.exe" -ArgumentList "/S" -PassThru
+          if (-not $p.WaitForExit(300000)) { throw "installer timed out" }
+          Start-Sleep -Seconds 3
+          $exe = "$env:LOCALAPPDATA\Programs\ReachGrid India\ReachGrid India.exe"
+          if (-not (Test-Path $exe)) { Get-ChildItem "$env:LOCALAPPDATA\Programs" -Recurse -Depth 1 | Select-Object FullName; throw "installed exe not found at $exe" }
+          $startMenu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\ReachGrid India.lnk"
+          $desktop = [Environment]::GetFolderPath("Desktop") + "\ReachGrid India.lnk"
+          if (-not (Test-Path $startMenu)) { throw "Start menu shortcut missing" }
+          if (-not (Test-Path $desktop)) { throw "Desktop shortcut missing" }
+          Write-Host "Installed: $exe"; Write-Host "Shortcuts OK"
+          (Get-Item $exe).VersionInfo | Format-List ProductName, FileVersion, CompanyName
+
+      - name: Smoke test (installed app)
+        run: |
+          $env:REACHGRID_USER_DIR = "$env:RUNNER_TEMP\rg-installed"
+          $out = "$env:RUNNER_TEMP\smoke-installed.json"
+          $p = Start-Process -FilePath "$env:LOCALAPPDATA\Programs\ReachGrid India\ReachGrid India.exe" -ArgumentList "--smoke-test=$out" -PassThru
+          if (-not $p.WaitForExit(600000)) { Stop-Process -Id $p.Id -Force; throw "installed smoke test timed out" }
+          Get-Content $out
+          $r = Get-Content $out | ConvertFrom-Json
+          if ($p.ExitCode -ne 0 -or -not $r.pass) { throw "installed smoke test failed" }
+          if (-not $r.packaged) { throw "expected a packaged app" }
+          Write-Host "$(@($r.results).Count) checks passed on the installed app"
+
+      - name: Silent uninstall
+        run: |
+          $u = "$env:LOCALAPPDATA\Programs\ReachGrid India\Uninstall ReachGrid India.exe"
+          $p = Start-Process -FilePath $u -ArgumentList "/S" -PassThru
+          if (-not $p.WaitForExit(300000)) { throw "uninstaller timed out" }
+          Start-Sleep -Seconds 5
+          if (Test-Path "$env:LOCALAPPDATA\Programs\ReachGrid India\ReachGrid India.exe") { throw "app still present after uninstall" }
+          Write-Host "Uninstall OK"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: reachgrid-windows
+          path: |
+            desktop/dist/ReachGrid-India-Setup.exe
+            desktop/dist/ReachGrid-India-Setup.exe.blockmap
+            desktop/dist/latest.yml
+            ${{ runner.temp }}/smoke-unpacked.json
+            ${{ runner.temp }}/smoke-installed.json
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = (Get-Content desktop/package.json | ConvertFrom-Json).version
+          $tag = "v$v"
+          $files = @("desktop/dist/ReachGrid-India-Setup.exe", "desktop/dist/ReachGrid-India-Setup.exe.blockmap", "desktop/dist/latest.yml")
+          $smoke = Get-Content "$env:RUNNER_TEMP\smoke-installed.json" | ConvertFrom-Json
+          $notes = @"
+          ReachGrid India $v for Windows 10/11 (64-bit).
+
+          Download **ReachGrid-India-Setup.exe**, run it, and the app opens: no admin rights, no setup.
+          Windows may say "Windows protected your PC" because the installer is not code-signed yet: choose More info → Run anyway.
+
+          Verified on Windows by the build pipeline: $(@($smoke.results).Count) checks passed on the installed app (workspace, every tab, background jobs, local API with key enforcement, role enforcement, audit chain, PDF export, corridor routing, tiles, data update), plus silent install, shortcuts and uninstall.
+
+          Data build: $(Select-String -Path data/india.js -Pattern 'data build ([\w.-]+)' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+          Commit: $env:GITHUB_SHA
+          "@
+          $notes | Out-File notes.md -Encoding utf8
+          gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { gh release upload $tag @files --clobber; gh release edit $tag --notes-file notes.md --latest }
+          else { gh release create $tag @files --title "ReachGrid India $v" --notes-file notes.md --latest }

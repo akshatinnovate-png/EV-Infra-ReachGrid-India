@@ -32,3 +32,4 @@ body.page .nav { position: sticky; background: transparent; }
 @media (max-width: 700px) { .toc { columns: 1; } .phase { grid-template-columns: 1fr; } }
 body.page .nav { background: var(--paper); border-bottom: 2px solid var(--line); padding: 6px 12px; }
 body.page .nav .chip { padding: 4px 8px; font-size: 16px; }
+.in-desktop body.page .nav { display: none; }

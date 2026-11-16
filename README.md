@@ -1,5 +1,7 @@
 # ReachGrid India
 
+<img src="desktop/build/icons/icon-128.png" width="64" align="right" alt="">
+
 **EV charging infrastructure intelligence & investment optimisation, for every state and district in India.**
 Techfest 2026–27 · EV Infra & Green Mobility AI Challenge · Challenge 1 · Team GoingAgain
 
@@ -11,21 +13,53 @@ India  →  Jharkhand  →  East Singhbhum
 (click a state: it pops out · click a district: everything inside it)
 ```
 
-## Run it
+## Install (Windows)
 
-No build step and no API keys. Start the bundled server, which opens your browser:
+1. Download **[ReachGrid-India-Setup.exe](https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest/download/ReachGrid-India-Setup.exe)**, or use the button on the [website](https://akshatinnovate-png.github.io/EV-Infra-ReachGrid-India/).
+2. Run it. It installs per-user in seconds (no admin rights) and opens the app. The installer is not code-signed yet, so Windows may say "Windows protected your PC": choose **More info → Run anyway**.
+3. Start planning. You're signed in as the owner, and all data and the engine are bundled. Press **▶ Demo** for the guided tour.
+
+The app runs as its own window (Electron), not in a browser. Your profile, projects, audit log and offline map tiles live in `%APPDATA%\ReachGrid India`.
+
+### What the desktop app adds over a static site
+
+| Capability | How |
+|---|---|
+| Real accounts and enforced roles | scrypt-hashed passwords; Viewer/Analyst/Admin checked in the main process on every protected write; optional sign-in at start-up |
+| Tamper-evident audit log | append-only `audit.jsonl` with a SHA-256 hash chain, written by the main process; editing any line is detected |
+| Local REST API for other tools | `http://127.0.0.1:<port>/api/v1` on a real HTTP server, with an API key, read-only by default, optional writes, fixed port option |
+| Offline maps | tile proxy with a disk cache; "download this region for offline" (z6–z15) |
+| Street routing | corridor checks route on OSRM when online, falling back to the highway graph |
+| Live data | one-click data updates from the weekly rebuild; live OpenStreetMap substations for grid proximity |
+| App updates | electron-updater from GitHub Releases, downloaded in the background and installed on restart |
+| Native files | save/open dialogs, PDF reports (`printToPDF`), `.reachgrid` project files (merge evidence, portfolio, reviews and scenarios from colleagues) |
+| Secrets | the optional Claude API key is encrypted with Windows DPAPI (`safeStorage`) |
+| App windows | methodology, business model and API console open as app windows; external links open in the system browser |
+
+### Build it yourself
 
 ```bash
-python3 serve.py
+cd desktop
+npm ci
+npx electron-builder --win nsis      # on Windows; produces dist/ReachGrid-India-Setup.exe
+npm start                            # run from source on any OS
+npx electron . --smoke-test=out.json # 32+ end-to-end checks, exit code 0 on success
 ```
 
-On Windows, double-click `start-windows.bat` or run `python serve.py`.
+Every push to `main` runs `.github/workflows/desktop.yml` on a real Windows machine:
 
-It runs at <http://localhost:5050>. Pass another port with `python3 serve.py 7000`, or set `PORT=7000`.
-If the port is busy, the next free port is used. Any static server works too, for example `npx serve -l 5050`.
+1. Unit tests.
+2. Build the installer.
+3. Smoke-test the unpacked app, including network checks (tiles, offline download, data update and revert, routing).
+4. Install silently and check the Start-menu and desktop shortcuts.
+5. Smoke-test the installed app.
+6. Uninstall silently.
 
-**Live:** <https://akshatinnovate-png.github.io/EV-Infra-ReachGrid-India/> (GitHub Pages from `main`). Workspace: <https://akshatinnovate-png.github.io/EV-Infra-ReachGrid-India/?app=1> Deep links work, for example `?r=jharkhand/east-singhbhum`, `?r=maharashtra/pune` or `?r=uttar-pradesh`.
-The app also works on GitHub Pages or any static host.
+The release is published only if all of these pass.
+
+### Develop the web workspace
+
+The workspace itself is `app.html` plus `js/`. To work on it in a browser, run `python3 serve.py` and open `/app.html?app=1`.
 
 ## What's real
 

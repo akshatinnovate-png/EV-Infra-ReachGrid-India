@@ -11,9 +11,10 @@
   <link rel="stylesheet" href="css/pages.css">
 </head>
 <body class="page">
+  <script>if (window.RGDesktop) document.documentElement.classList.add("in-desktop");</script>
   <nav class="nav" aria-label="Main">
     <a class="chip brand" href="./">ReachGrid India</a>
-    <div class="center"><a class="chip" href="./?app=1">Workspace</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a><a class="chip" href="api.html">API</a></div>
+    <div class="center"><a class="chip" href="./#features">Features</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a></div>
     <button class="chip" onclick="print()">Print / PDF</button>
   </nav>
   <main class="doc">
@@ -26,7 +27,7 @@
     <table class="t doc-t"><thead><tr><th>Stream</th><th>Buyer</th><th>Pricing hypothesis</th><th>In the product today</th></tr></thead><tbody>
       <tr><td><b>Annual analytics subscription</b></td><td>CPOs, fleet operators, real-estate groups</td><td>₹3–12 lakh / organisation / year</td><td>Workspace: atlas, planner, compare, validate, exports</td></tr>
       <tr><td><b>Planning study / site shortlist</b></td><td>Municipal bodies, consultants, developers</td><td>₹2–10 lakh per geography</td><td>Scenario JSON, CSV, GeoJSON, print report, encrypted export</td></tr>
-      <tr><td><b>Enterprise / API licence</b></td><td>Large operators, utilities, mobility platforms</td><td>₹10–30 lakh / year</td><td>Scenario API v1 (<a href="api.html">docs</a>)</td></tr>
+      <tr><td><b>Enterprise / API licence</b></td><td>Large operators, utilities, mobility platforms</td><td>₹10–30 lakh / year</td><td>Local REST API in the desktop app (scenarios, baselines, OpenAPI)</td></tr>
       <tr><td><b>Custom deployment & integration</b></td><td>Large organisations, public projects</td><td>Project-based</td><td>Evidence upload, VAHAN import, portfolio import/export</td></tr>
       <tr><td><b>Monitoring & refresh</b></td><td>Existing subscribers</td><td>In higher tiers</td><td>Weekly automated rebuild + change report, portfolio recalibration</td></tr>
     </tbody></table>

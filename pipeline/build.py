@@ -25,6 +25,9 @@ import subprocess
 import sys
 
 from shapely.geometry import Point, shape
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import extras  # noqa: E402
 from shapely.prepared import prep
 from shapely.strtree import STRtree
 
@@ -406,6 +409,7 @@ def main():
             "coverage": d["coverage"], "mean_dist": d["mean_dist"],
             "census_flag": d["census_flag"], "census_src": d["census_src"],
             "places": len(d["places"]),
+            "inventory": extras.charger_inventory(ch),
         }
 
     for i, d in enumerate(districts):
@@ -513,6 +517,40 @@ def main():
         "totals": agg(range(len(districts))),
         "states": [], "districts": [],
     }
+    india["totals"]["inventory"] = extras.charger_inventory([x for i in range(len(districts)) for x in chargers_by_d[i]])
+    BUILD_VERSION = started.strftime("%Y.%m.%d") + "-" + hashlib.sha256("".join(x.get("sha256") or "" for x in sources).encode()).hexdigest()[:6]
+    india["version"] = BUILD_VERSION
+    # VAHAN electric two-wheeler registrations (state, monthly 2020-2024) and district allocation
+    vahan = extras.vahan_series(os.path.join(RAW, "vahan"), set(states.keys()))
+    if vahan:
+        log(f"VAHAN: {len(vahan['states'])} states, national E2W 2024 = {vahan['national']['2024']['e2w']:,}; unmatched {vahan['unmatched']}")
+        for sid, idx in states.items():
+            v = vahan["states"].get(sid)
+            if not v:
+                continue
+            tw = sum(districts[i]["census"]["hh_2w"] for i in idx) or 1
+            for i in idx:
+                sh = districts[i]["census"]["hh_2w"] / tw
+                st_ = districts[i]["stats"]
+                st_["e2w_2024"] = round(v["years"]["2024"]["e2w"] * sh)
+                st_["e2w_stock"] = round(v["stock_2020_2024"] * sh)
+                st_["e2w_share_2024"] = v["years"]["2024"]["share"]
+                st_["e2w_cagr"] = v["cagr_2021_2024"]
+        sources.append({"id": "vahan", "title": "VAHAN electric two-wheeler registrations by state and month, 2020–2024",
+                        "publisher": "Ministry of Road Transport & Highways, VAHAN dashboard (exports via narayanamalla/PS-EV-peneteration-in-india)",
+                        "url": "https://vahan.parivahan.gov.in/vahan4dashboard/", "licence": "Government of India open data (GODL)",
+                        "observed": "2020-01 to 2024-12", "retrieved": retrieved, "kind": "observed",
+                        "limits": "Two-wheeler category only (all EV types: BOV, plug-in, strong hybrid). District values are allocated from state totals by Census 2W ownership (derived). 3W/4W/bus use editable ratios.",
+                        "sha256": hashlib.sha256(b"".join(open(os.path.join(RAW, "vahan", f), "rb").read() for f in vahan["files"])).hexdigest()})
+    grid = extras.grid_points(RAW)
+    if grid:
+        log(f"grid proxy: {len(grid['points'])} {grid['kind']} points ({grid['source']})")
+        sources.append({"id": "grid", "title": "Electricity infrastructure proxy: " + ("OpenStreetMap power substations" if grid["kind"] == "substation" else "power plants (WRI Global Power Plant Database)"),
+                        "publisher": "OpenStreetMap contributors" if grid["kind"] == "substation" else "World Resources Institute",
+                        "url": "https://www.openstreetmap.org" if grid["kind"] == "substation" else "https://github.com/wri/global-power-plant-database",
+                        "licence": "ODbL 1.0" if grid["kind"] == "substation" else "CC BY 4.0", "observed": "snapshot", "retrieved": retrieved, "kind": "observed",
+                        "limits": "Proximity only: spare feeder/transformer capacity is not public and must come from the DISCOM (Evidence tab)."})
+
     # official reference counts (BEE, March 2024) — shown side by side, never merged with the dataset
     official = {}
     off_path = os.path.join(HERE, "official_pcs_bee_mar2024.csv")
@@ -530,6 +568,9 @@ def main():
         name, g = geo_states[sid]
         a = agg(idx)
         a["official_pcs_mar2024"] = official.get(sid)
+        a["inventory"] = extras.charger_inventory([x for i in idx for x in chargers_by_d[i]])
+        if vahan and sid in vahan["states"]:
+            a["vahan"] = vahan["states"][sid]
         india["states"].append({"id": sid, "name": name, "geom": geom_rounded(g, 3), "stats": a})
     for i, d in enumerate(districts):
         c = d["geom"].representative_point()
@@ -542,6 +583,10 @@ def main():
             flags = (1 if ((x[4] or 0) >= 15 or (x[6] or 0) > 0) else 0) | (2 if x[8] >= 2 else 0)
             pts += [int(round(x[0] * 1e4)), int(round(x[1] * 1e4)), flags]
     india["charger_index"] = pts
+    if vahan:
+        india["vahan_national"] = vahan["national"]
+    if grid:
+        india["grid"] = {"kind": grid["kind"], "points": [v for p in grid["points"] for v in (int(round(p[0] * 1e4)), int(round(p[1] * 1e4)), int(p[2]))]}
     india["places"] = sorted(
         ([pl["n"], r4(pl["lon"]), r4(pl["lat"]), pl["p"], d["id"]] for d in districts for pl in d["places"] if pl["p"] >= 20000),
         key=lambda x: -x[3])

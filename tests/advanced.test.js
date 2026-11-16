@@ -86,4 +86,25 @@ t("holdout backtest runs and is deterministic", () => {
   console.log(`    ${a.hidden}/${a.regionChargers} hidden · hit rate greedy ${(a.greedy.hitRate * 100).toFixed(0)}%, commercial ${(a.commercial.hitRate * 100).toFixed(0)}% vs random ${(a.random.hitRate * 100).toFixed(0)}% · coverage greedy ${(a.greedy.coverage * 100).toFixed(1)}% vs real sites ${(a.realSites.coverage * 100).toFixed(1)}%`);
 });
 
+console.log("Forecast");
+t("fleet forecast grows under positive growth; gaps are never negative; VAHAN feeds the base", () => {
+  const st = india.districts.find(d => d.id === "jharkhand.east-singhbhum").stats;
+  assert(st.e2w_2024 > 0 && st.e2w_stock > st.e2w_2024, "VAHAN allocation present");
+  const ex = A.existingPoints(st.inventory);
+  const f = A.forecast({ e2wReg2024: st.e2w_2024, e2wStock: st.e2w_stock, cagr: st.e2w_cagr, existing: ex });
+  for (let i = 1; i < f.rows.length; i++) { const a = f.rows[i - 1], b = f.rows[i]; assert(b.stock.e2w >= a.stock.e2w && b.needAc >= a.needAc); assert(b.gapAc >= 0 && b.gapDc >= 0); }
+  const cons = A.forecast({ e2wReg2024: st.e2w_2024, e2wStock: st.e2w_stock, cagr: st.e2w_cagr, existing: ex }, { scenario: "conservative" });
+  assert(cons.rows.at(-1).stock.e2w < f.rows.at(-1).stock.e2w, "conservative below trend");
+  console.log(`    2030 trend: ${f.rows.at(-1).stock.e2w} E2W, ${f.rows.at(-1).needAc} AC / ${f.rows.at(-1).needDc} DC points needed`);
+});
+t("sites needed for a coverage target actually reach it", () => {
+  const { ctx, cands } = Rg.analyse(args);
+  const r = A.sitesForCoverage(ctx, cands, opts, 0.9);
+  assert(r.capped || r.reached >= 0.9);
+});
+t("grid proximity enters feasibility for every candidate when the grid layer is present", () => {
+  const { ctx, cands } = Rg.analyse(args);
+  assert(ctx.gridIdx && cands.every(c => c.raw.feasibility != null && c.raw.gridKm != null));
+});
+
 console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

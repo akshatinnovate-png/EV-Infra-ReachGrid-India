@@ -1,0 +1,56 @@
+{
+  "name": "reachgrid-india",
+  "productName": "ReachGrid India",
+  "version": "1.0.0",
+  "description": "EV charging access intelligence and investment optimisation for every state and district in India.",
+  "main": "main.js",
+  "author": "Team GoingAgain <akshat.innovate@gmail.com>",
+  "license": "MIT",
+  "homepage": "https://akshatinnovate-png.github.io/EV-Infra-ReachGrid-India/",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke-test=smoke.json",
+    "dist": "electron-builder --win nsis --publish never",
+    "release": "electron-builder --win nsis --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "6.3.9"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "in.reachgrid.india",
+    "productName": "ReachGrid India",
+    "copyright": "© 2026 Team GoingAgain",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "preload.js", "server.js", "governance.js", "build/icon.png", "package.json"],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "web",
+        "filter": ["app.html", "api.html", "methodology.html", "business.html", "desktop-logo.png", "css/**", "js/**", "data/**", "media/**", "vendor/**"]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "artifactName": "ReachGrid-India-Setup.${ext}",
+      "publisherName": "Team GoingAgain"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ReachGrid India",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "ReachGrid India",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [{ "provider": "github", "owner": "akshatinnovate-png", "repo": "EV-Infra-ReachGrid-India", "releaseType": "release" }]
+  }
+}

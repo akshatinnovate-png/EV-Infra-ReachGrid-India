@@ -4,136 +4,78 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ReachGrid India</title>
-  <meta name="description" content="EV charging access intelligence for every state and district in India: real charger data, census demand, gap detection and budget-constrained site optimisation.">
+  <meta name="description" content="ReachGrid India for Windows: EV charging access intelligence and investment optimisation for every state and district in India. Install and start planning.">
   <meta name="theme-color" content="#f2879f">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e44fbf'/%3E%3Cpath d='M18 4 8 18h7l-2 10 11-15h-7z' fill='%231b1b1d'/%3E%3C/svg%3E">
+  <link rel="icon" href="desktop-logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/site.css">
 </head>
-<body>
-  <div id="boot" role="status" aria-live="polite">
-    <div class="bootwin">
-      <div class="tb">ReachGrid 1.0</div>
-      <div class="bd">
-        <div>Loading ...</div>
-        <div id="boot-step">Boundaries, census, chargers</div>
-        <div class="bar"><i id="boot-bar"></i><b id="boot-pct">0%</b></div>
-      </div>
-    </div>
-  </div>
-
+<body class="site">
   <nav class="nav" aria-label="Main">
-    <a class="chip brand" href="#top">ReachGrid India</a>
+    <a class="chip brand" href="#top"><img src="desktop-logo.png" alt="" width="22" height="22" style="vertical-align:-4px;margin-right:6px">ReachGrid India</a>
     <div class="center">
-      <a class="chip" href="#atlas" data-go="atlas">Atlas</a>
-      <a class="chip" href="#atlas" data-go="corridor">Corridors</a>
+      <a class="chip" href="#features">Features</a>
+      <a class="chip" href="#install">Install</a>
       <a class="chip" href="methodology.html">Method</a>
       <a class="chip" href="business.html">Business</a>
-      <a class="chip" href="api.html">API</a>
-      <a class="chip" href="./?app=1&amp;tour=1">Demo</a>
+      <a class="chip" href="#submission">Team</a>
     </div>
-    <button class="chip clock" id="theme-toggle" title="Toggle light/dark">◐</button>
-    <a class="chip cta" href="#atlas" data-go="atlas">Open Atlas</a>
+    <a class="chip cta dl-link" href="https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest/download/ReachGrid-India-Setup.exe">Download for Windows</a>
   </nav>
 
   <header class="hero" id="top">
     <div class="clouds" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="news">
       <div class="win newswin">
-        <div class="tb"><span class="t" id="news1-t">Data build • ReachGrid News</span></div>
+        <div class="tb"><span class="t" id="rel-t">Desktop app · ReachGrid News</span></div>
         <div class="bd">
-          <div class="big">EVERY STATE. EVERY DISTRICT.</div>
-          <div id="news1-b">Real charging stations, census demand and highways for all of India</div>
-          <div style="margin-top:14px"><a class="btn" href="#atlas" data-go="atlas">Open the atlas</a></div>
+          <div class="big">REACHGRID INDIA FOR WINDOWS</div>
+          <div>The full planning workspace as an app: maps, data, engine and docs inside</div>
+          <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><a class="btn dl-link" href="https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest/download/ReachGrid-India-Setup.exe">⬇ Download for Windows</a></div>
+          <div class="sub mono" id="rel-meta" style="margin-top:8px">Windows 10/11 · 64-bit · installs in seconds, no admin rights</div>
         </div>
       </div>
       <div class="win newswin">
-        <div class="tb"><span class="t">Method • ReachGrid News</span></div>
+        <div class="tb"><span class="t">No setup · ReachGrid News</span></div>
         <div class="bd">
-          <div>⚡ Not another charger map: a decision engine for<br>marginal access per rupee</div>
-          <div style="margin-top:12px"><a class="linkbtn" href="#method">Read the method</a></div>
+          <div>25,587 chargers · 737 districts · VAHAN registrations · census demand<br>all bundled: install, open, start planning</div>
+          <div style="margin-top:12px"><a class="linkbtn" href="#features">See what's inside</a></div>
         </div>
       </div>
     </div>
     <p class="intro">Introducing ReachGrid <span class="dots">.......................</span> Intelligence beyond the charger map</p>
     <h1 class="headline">Measure Access. Optimise Investment. Scale With Evidence.
-      <span class="play"><a href="#atlas" data-go="atlas">Find the gaps near you</a><a href="#atlas" data-go="atlas" aria-label="Open atlas">▶</a></span>
+      <span class="play"><a class="dl-link" href="https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest/download/ReachGrid-India-Setup.exe">Download for Windows</a><a href="#features" aria-label="Features">▶</a></span>
     </h1>
-    <div class="vstring" id="vstring" aria-hidden="true"></div>
   </header>
 
-  <section class="launch" id="atlas-launch" aria-label="Launch workspace">
-    <div class="win launchwin">
-      <div class="tb"><span class="t">RG.OS1 · Planning workspace</span></div>
-      <div class="bd">
-        <div class="launch-grid">
-          <div>
-            <h2>Open the full-screen workspace.</h2>
-            <p>India → state → district drill-down, budget optimiser, corridor checks, confidence ledger and exports, laid out for real work: docked panels, keyboard shortcuts and full screen.</p>
-            <div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="?app=1" data-go="atlas">Launch workspace ↗</a><a class="btn ghost" href="?app=1&amp;mode=corridor" data-go="corridor">Corridor check</a></div>
-          </div>
-          <ul class="kbd-list">
-            <li><kbd>F</kbd> full screen</li><li><kbd>/</kbd> search anywhere</li><li><kbd>Esc</kbd> up one level</li>
-            <li><kbd>[</kbd> <kbd>]</kbd> toggle side panels</li><li><kbd>A</kbd> assistant</li><li><kbd>1</kbd>–<kbd>5</kbd> inspector tabs</li>
-          </ul>
-        </div>
-      </div>
+  <section class="sources" id="screens">
+    <div class="shots">
+      <figure class="win"><div class="tb"><span class="t">Workspace · India → Maharashtra → Pune</span></div><img src="media/screens/workspace.png" alt="ReachGrid workspace showing Pune district with chargers, demand cells and proposed sites" loading="lazy"></figure>
+      <figure class="win"><div class="tb"><span class="t">Forecast · chargers needed to 2030</span></div><img src="media/screens/forecast.png" alt="Forecast tab with EV fleet and required AC and DC charge points" loading="lazy"></figure>
+      <figure class="win"><div class="tb"><span class="t">Compare · greedy vs exact ILP</span></div><img src="media/screens/compare.png" alt="Compare tab with budget curve and optimiser comparison" loading="lazy"></figure>
+      <figure class="win"><div class="tb"><span class="t">Settings · users, local API, offline maps</span></div><img src="media/screens/settings.png" alt="Settings window with data updates and offline maps" loading="lazy"></figure>
     </div>
   </section>
 
-  <section class="desk-wrap" id="atlas" aria-label="ReachGrid workspace">
-    <div class="desk">
-      <header class="appbar" role="toolbar" aria-label="Workspace toolbar">
-        <a class="ab-brand" href="./" id="ab-exit" title="Back to site">⚡ ReachGrid <span>India</span></a>
-        <div class="crumbs" id="crumbs"></div>
-        <div class="ab-search" id="ab-search"></div>
-        <div class="seg ab-mode"><button id="ab-atlas" aria-pressed="true">Atlas</button><button id="ab-corr" aria-pressed="false">Corridor</button></div>
-        <div class="ab-tools">
-          <button class="ab-btn" id="ab-left" title="Toggle navigator  [" aria-pressed="true">☰</button>
-          <button class="ab-btn" id="ab-right" title="Toggle inspector  ]" aria-pressed="true">▤</button>
-          <button class="ab-btn" id="ab-ask" title="Assistant  A" aria-pressed="true">✦</button>
-          <button class="ab-btn" id="ab-theme" title="Light / dark">◐</button>
-          <button class="ab-btn" id="ab-help" title="Shortcuts  ?">?</button>
-          <button class="ab-btn" id="ab-fs" title="Full screen  F">⛶</button>
-        </div>
-      </header>
-      <div id="map" role="application" aria-label="Map"></div>
-      <div class="resizer" id="rz-left" title="Drag to resize"></div>
-      <div class="resizer" id="rz-right" title="Drag to resize"></div>
-      <div class="desk-order">
-        <section class="win fw" id="w-nav" aria-label="Navigator">
-          <div class="tb"><span class="t" id="nav-title">Navigator</span><button data-min aria-label="Minimise">_</button></div>
-          <div class="bd" id="nav-body"></div>
-        </section>
-        <section class="win fw" id="w-insp" aria-label="Inspector">
-          <div class="tb"><span class="t" id="insp-title">Inspector</span><button data-min aria-label="Minimise">_</button></div>
-          <div class="bd" id="insp-body"></div>
-        </section>
-        <section class="win fw" id="w-legend" aria-label="Legend and layers">
-          <div class="tb"><span class="t">Legend · Layers</span><button data-min aria-label="Minimise">_</button></div>
-          <div class="bd" id="legend-body"></div>
-        </section>
-        <section class="win fw glass" id="w-ask" aria-label="Ask ReachGrid">
-          <video src="media/prism.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
-          <div class="tb"><span class="t">Ask ReachGrid</span><button data-min aria-label="Minimise">_</button></div>
-          <div class="bd" id="ask-body"></div>
-        </section>
-      </div>
-      <footer class="statusbar" id="statusbar" aria-live="off">
-        <span id="sb-scope">India</span><span id="sb-metric"></span><span id="sb-cursor">—</span><span class="grow"></span><span id="sb-build"></span><span id="sb-net"></span><span id="sb-clock"></span>
-      </footer>
-      <div class="help" id="help" hidden>
-        <div class="win"><div class="tb"><span class="t">Keyboard shortcuts</span><button id="help-x" aria-label="Close">×</button></div>
-          <div class="bd"><table class="t"><tbody>
-            <tr><td><kbd>F</kbd></td><td>Full screen on / off</td></tr><tr><td><kbd>/</kbd></td><td>Search states, districts, towns</td></tr>
-            <tr><td><kbd>Esc</kbd></td><td>Up one level (district → state → India)</td></tr><tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Hide or show navigator / inspector</td></tr>
-            <tr><td><kbd>A</kbd></td><td>Assistant</td></tr><tr><td><kbd>L</kbd></td><td>Legend &amp; layers</td></tr>
-            <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>Overview · Plan · Sensitivity · Chargers · Ledger</td></tr><tr><td><kbd>C</kbd></td><td>Corridor mode</td></tr>
-            <tr><td><kbd>?</kbd></td><td>This help</td></tr></tbody></table></div></div>
-      </div>
+  <section class="sources" id="features">
+    <h2>Everything inside the app.</h2>
+    <div class="feat">
+      <div class="win"><div class="tb"><span class="t">Atlas</span></div><div class="bd">India → state → district drill-down for all 737 districts. Choropleths, rankings, search, charger power tiers and connectors, grid proximity.</div></div>
+      <div class="win"><div class="tb"><span class="t">Planner</span></div><div class="bd">Coverage, equity, corridor and commercial objectives. Budget-constrained greedy optimiser vs baselines, with per-site score breakdown and confidence.</div></div>
+      <div class="win"><div class="tb"><span class="t">Forecast 2030</span></div><div class="bd">EV fleet from real VAHAN registrations (2020–2024 trend) by segment, and the AC/DC charge points each district needs year by year.</div></div>
+      <div class="win"><div class="tb"><span class="t">Compare & validate</span></div><div class="bd">Budget curves, exact integer programme with optimality gap, 9-way sensitivity, holdout backtest against real operator sites, live acceptance tests.</div></div>
+      <div class="win"><div class="tb"><span class="t">Evidence & portfolio</span></div><div class="bd">Load DISCOM capacity, land and cost evidence; import VAHAN district exports; mark sites built, record usage and recalibrate the demand model.</div></div>
+      <div class="win"><div class="tb"><span class="t">Corridors</span></div><div class="bd">Real street routing (OSRM) between any two towns, every charger along the way, longest gap and minimum stops for your EV's range.</div></div>
+      <div class="win"><div class="tb"><span class="t">Accounts & audit</span></div><div class="bd">Viewer, Analyst and Admin accounts with passwords, enforced by the app. Human review before spending, and a tamper-evident audit log on disk.</div></div>
+      <div class="win"><div class="tb"><span class="t">Local REST API</span></div><div class="bd">The scenario API runs on a local HTTP server with an API key, so Python, Excel or curl on your machine can run scenarios.</div></div>
+      <div class="win"><div class="tb"><span class="t">Works offline</span></div><div class="bd">All data and the engine are bundled. Download street maps for any region for field work; viewed tiles are cached automatically.</div></div>
+      <div class="win"><div class="tb"><span class="t">Always current</span></div><div class="bd">Weekly data rebuilds download in one click; app updates install themselves on restart. Live OpenStreetMap substations on demand.</div></div>
+      <div class="win"><div class="tb"><span class="t">Reports & projects</span></div><div class="bd">PDF reports, CSV and GeoJSON shortlists, reproducible scenario files, encrypted exports, and shareable .reachgrid project files.</div></div>
+      <div class="win"><div class="tb"><span class="t">Docs built in</span></div><div class="bd">Methodology, business model, API console and a guided demo tour, each in its own app window. The Claude assistant key is stored encrypted by Windows.</div></div>
     </div>
   </section>
 
@@ -141,48 +83,93 @@
     <video class="poster" src="media/forest.mp4" poster="media/forest.jpg" autoplay muted loop playsinline aria-hidden="true"></video>
     <div class="inner">
       <h2>Green mobility runs on evidence, not pins.</h2>
-      <p class="lead">A high charger count does not mean good access. ReachGrid measures who is out of reach, explains every recommendation and tests which deployments buy the most new access per rupee, with confidence shown separately from the score.</p>
-      <div class="statband" id="statband"></div>
-      <div class="method-grid">
-        <div class="win"><div class="tb"><span class="t">1 · Reachability engine</span></div><div class="bd">
-          Each district is tiled into hex demand cells (~260 per district). Census 2011 population is placed on them: the urban share around GeoNames towns with a Gaussian kernel, the rural share spread evenly.
-          <div class="formula">Aᵢ = 1[min d(i, s) · detour ≤ τ]</div>
-          <div class="formula">Coverage = Σ wᵢAᵢ / Σ wᵢ</div>
-          Chargers outside the district still count, so borders don't create fake gaps.</div></div>
-        <div class="win"><div class="tb"><span class="t">2 · Gap intelligence</span></div><div class="bd">
-          Candidates: towns with no charger within 1 km, highway points every 8 km, and unserved demand hotspots.
-          <div class="formula">P = .30·Gap + .25·EVPressure + .20·Corridor + .15·Equity + .10·Feasibility</div>
-          Unknown components are excluded and weights renormalised, never zero-filled.</div></div>
-        <div class="win"><div class="tb"><span class="t">3 · Site optimiser</span></div><div class="bd">
-          Greedy marginal gain: repeatedly add the site with the largest newly-covered demand per ₹, recomputing coverage after every pick, until the budget runs out.
-          <div class="formula">max Σ wᵢ·1[min d(i, S ∪ X) ≤ τ]  s.t. Σ cⱼxⱼ ≤ B</div>
-          Compared against score-only and EV/charger-ratio baselines, plus an equity-weighted variant.</div></div>
-        <div class="win"><div class="tb"><span class="t">5 · Validated, documented</span></div><div class="bd">
-          23 automated acceptance tests, a holdout backtest against where operators really built, an exact ILP benchmark, sensitivity analysis and a weekly data refresh.
-          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="methodology.html">Methodology</a><a class="btn sm ghost" href="business.html">Business model</a><a class="btn sm ghost" href="api.html">API</a></div></div></div>
-        <div class="win"><div class="tb"><span class="t">4 · Confidence ledger</span></div><div class="bd">
-          Every number is tagged <span class="tag obs">observed</span> <span class="tag der">derived</span> <span class="tag imp">imputed</span>. District census figures for post-2011 districts are apportioned with an area- and settlement-weighted crosswalk against the 2011 polygons. Confidence never changes the score; it decides what to verify first.</div></div>
-      </div>
+      <p class="lead">ReachGrid measures who is out of reach, explains every recommendation and tests which deployments buy the most new access per rupee, with confidence shown separately from the score.</p>
+      <div class="statband" id="statband"><div><b>25,587</b><span>public charging sites</span></div><div><b>737</b><span>districts, 36 states & UTs</span></div><div><b>12.1 L</b><span>e-2W registered in 2024 (VAHAN)</span></div><div><b>32</b><span>automated checks on every build</span></div></div>
+      <div style="margin-top:24px;display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="methodology.html">Read the methodology</a><a class="btn ghost" style="color:#fff;border-color:#fff" href="business.html">Business model & roadmap</a></div>
     </div>
   </section>
 
-  <section class="sources" id="sources">
-    <h2>Sources, licences, limits.</h2>
-    <div class="win"><div class="tb"><span class="t">Source registry · data build</span></div><div class="bd" id="sources-body"></div></div>
+  <section class="sources" id="install">
+    <h2>Install in three steps.</h2>
+    <div class="feat" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+      <div class="win"><div class="tb"><span class="t">1 · Download</span></div><div class="bd"><a class="btn dl-link" href="https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest/download/ReachGrid-India-Setup.exe">⬇ ReachGrid-India-Setup.exe</a><div class="sub" id="rel-size" style="margin-top:6px">Windows 10 or 11, 64-bit</div></div></div>
+      <div class="win"><div class="tb"><span class="t">2 · Run it</span></div><div class="bd">It installs for your user in seconds, with no admin rights and no questions. It adds Start-menu and desktop shortcuts, then opens the app.<div class="sub" style="margin-top:6px">Windows may show “Windows protected your PC” because the installer isn't code-signed yet: choose <b>More info → Run anyway</b>.</div></div></div>
+      <div class="win"><div class="tb"><span class="t">3 · Start planning</span></div><div class="bd">You're signed in as the owner, with all data and maps included. Press <kbd>▶ Demo</kbd> for a guided tour, or search any district with <kbd>/</kbd>.</div></div>
+    </div>
+    <table class="t doc-like"><tbody>
+      <tr><td><b>Requirements</b></td><td>Windows 10/11 64-bit · 4 GB RAM · about 450 MB disk · internet optional (street maps, routing, updates)</td></tr>
+      <tr><td><b>Your data</b></td><td>Stays on your computer under <span class="mono">%APPDATA%\ReachGrid India</span>; nothing is uploaded</td></tr>
+      <tr><td><b>Uninstall</b></td><td>Settings → Apps → ReachGrid India; your projects and profile are kept unless you delete the folder</td></tr>
+      <tr><td><b>Source</b></td><td><a href="https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India">github.com/akshatinnovate-png/EV-Infra-ReachGrid-India</a> · every release is built and tested automatically on Windows</td></tr>
+    </tbody></table>
+  </section>
+  <section class="sources" id="roadmap">
+    <h2>Roadmap &amp; institutional rollout.</h2>
+    <div class="method-grid" style="color:var(--ink)">
+      <div class="win"><div class="tb"><span class="t">Stage 1 · Pilot (0–3 months)</span></div><div class="bd">
+        One State Nodal Agency for EV charging (the DISCOM or energy department designated under the Ministry of Power guidelines) plus one Urban Local Body.
+        <ul><li>Data-sharing MoU: feeder/DT spare capacity and land parcels, uploaded through the Evidence tab</li><li>Monthly VAHAN RTO exports through the EV registration upload</li><li>Shortlist → field validation → review sign-off in the app</li></ul>
+        <b>Gate:</b> validated shortlist, time saved, signed feedback.</div></div>
+      <div class="win"><div class="tb"><span class="t">Stage 2 · State rollout (3–9 months)</span></div><div class="bd">
+        All districts of the pilot state, with ULB-level users under the state EV cell.
+        <ul><li>Quarterly scenario reviews for PM E-DRIVE / state scheme proposals</li><li>Portfolio monitor tracks commissioned sites and recalibrates demand from real sessions</li><li>Server deployment with single sign-on and role enforcement</li></ul>
+        <b>Gate:</b> recurring use by the SNA, first paid study.</div></div>
+      <div class="win"><div class="tb"><span class="t">Stage 3 · Multi-state (9–18 months)</span></div><div class="bd">
+        3–5 states, then CPO and fleet subscribers.
+        <ul><li>Per-state source adapters, scheduled refresh (already weekly), regional calibration via backtests</li><li>Scenario API for state portals and operator planning systems</li><li>Street-level road routing on OSM in place of the national highway graph</li></ul>
+        <b>Gate:</b> renewals and measured unit economics.</div></div>
+      <div class="win"><div class="tb"><span class="t">Stage 4 · National decision support</span></div><div class="bd">
+        All states and UTs (the data layer already covers all 36), offered to MHI, BEE and ICAT as a shared method.
+        <ul><li>Multi-tenant platform, audit logs, SLAs</li><li>Standard templates for corridor and city plans</li><li>Live VAHAN and DISCOM feeds where agreements allow</li></ul>
+        <b>Gate:</b> data agreements and operating capacity.</div></div>
+    </div>
+    <p class="sub">Full phase status, unit economics and market sizing: <a href="business.html">business model &amp; roadmap</a>. Method and formulas: <a href="methodology.html">methodology</a>.</p>
+  </section>
+
+  <section class="sources" id="submission">
+    <h2>Submission &amp; disclosures.</h2>
+    <div class="win"><div class="tb"><span class="t">Techfest 2026–27 · EV Infra &amp; Green Mobility AI Challenge · Challenge 1: EV Infra Map India</span></div><div class="bd">
+      <table class="t"><tbody>
+        <tr><td><b>Team</b></td><td>GoingAgain</td></tr>
+        <tr><td><b>Team ID</b></td><td class="mono">TM-7E9065875FC</td></tr>
+        <tr><td><b>Institution</b></td><td>Varying (multi-institution team)</td></tr>
+        <tr><td><b>Team leader / contact</b></td><td>Akshat Sarkar · <a href="mailto:akshat.innovate@gmail.com">akshat.innovate@gmail.com</a></td></tr>
+        <tr><td><b>Submission</b></td><td>Round 1 concept, methodology &amp; roadmap, with this working prototype · source: <a href="https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India">GitHub</a></td></tr>
+      </tbody></table>
+      <h3 style="font-family:var(--sans);margin:16px 0 6px">Data disclosure</h3>
+      <ul>
+        <li><b>No synthetic data.</b> Every charger, census figure, boundary, town, road, registration and power-plant record comes from the public sources listed in <a href="methodology.html#data">Sources</a>, with licences and checksums.</li>
+        <li><span class="tag der">derived</span> values: hex demand cells; district allocation of state VAHAN registrations by Census two-wheeler ownership; distances; scores; forecasts.</li>
+        <li><span class="tag imp">imputed</span> values: Census 2011 totals apportioned to districts created after 2011; charge points for sites that publish no gun counts.</li>
+        <li><b>Assumptions</b> (editable, labelled in the app): costs, detour factor, 3W/4W/bus ratios to two-wheelers, energy per vehicle, public charging share, commercial rates.</li>
+      </ul>
+      <h3 style="font-family:var(--sans);margin:16px 0 6px">AI and third-party tools</h3>
+      <ul>
+        <li><b>AI assistance:</b> the prototype's code, data pipeline and documentation were developed with the help of Anthropic's Claude, an AI coding assistant, under the team's direction and review. Analytical results come from the deterministic engine and tests in the repository, not from a language model.</li>
+        <li><b>Ask ReachGrid:</b> built-in answers are rule-based over the loaded data. An optional mode sends questions to Anthropic's Claude API using the visitor's own API key, directly from the browser; answers are labelled.</li>
+        <li><b>Libraries:</b> Leaflet (BSD-2-Clause), jsLPSolver (Unlicense), Anthropic TypeScript SDK (MIT), mapshaper (MPL-2.0, pipeline), Shapely (BSD-3-Clause, pipeline), IBM Plex Mono and Inter Tight (SIL OFL).</li>
+        <li><b>Services at runtime:</b> CARTO basemap tiles (© OpenStreetMap contributors, © CARTO), Google Fonts, the optional live OpenStreetMap Overpass check, GitHub Pages hosting.</li>
+        <li><b>Media:</b> background video loops were supplied by the team as design references.</li>
+      </ul>
+    </div></div>
   </section>
 
   <footer>
-    <span>ReachGrid India · Team GoingAgain · Techfest 2026–27 EV Infra Challenge 1</span>
-    <span>Charger data © contributors, ODbL 1.0 · Census of India 2011 · DataMeet CC BY 4.0 · GeoNames CC BY 4.0 · Natural Earth</span>
+    <span>ReachGrid India · Team GoingAgain · Team ID TM-7E9065875FC · Techfest 2026–27 EV Infra Challenge 1 · <a href="#submission">disclosures</a></span>
+    <span>Charger data © contributors, ODbL 1.0 · Census of India 2011 · VAHAN (MoRTH) · DataMeet CC BY 4.0 · GeoNames CC BY 4.0 · WRI CC BY 4.0 · Natural Earth</span>
     <span>Screening tool: does not certify grid capacity, land, permits or profitability.</span>
   </footer>
-
-  <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="vendor/lp-solver.js"></script>
-  <script src="js/engine.js"></script>
-  <script src="js/region.js"></script>
-  <script src="js/advanced.js"></script>
-  <script src="js/jobs.js"></script>
-  <script src="js/app.js"></script>
+  <script>
+    // live release details from GitHub (falls back silently to the static text)
+    fetch("https://api.github.com/repos/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest").then(r => r.ok ? r.json() : null).then(rel => {
+      if (!rel) return;
+      const a = (rel.assets || []).find(x => /Setup\.exe$/.test(x.name)); if (!a) return;
+      const mb = (a.size / 1048576).toFixed(0), when = new Date(rel.published_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+      document.querySelectorAll(".dl-link").forEach(l => l.href = a.browser_download_url);
+      document.getElementById("rel-t").textContent = `${rel.tag_name} · ${when} · ReachGrid News`;
+      document.getElementById("rel-meta").textContent = `${rel.tag_name} · ${mb} MB · Windows 10/11 64-bit · no admin rights`;
+      document.getElementById("rel-size").textContent = `${rel.tag_name} · ${mb} MB · downloaded ${a.download_count.toLocaleString("en-IN")} times`;
+    }).catch(() => {});
+  </script>
 </body>
 </html>

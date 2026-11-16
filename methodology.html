@@ -11,9 +11,10 @@
   <link rel="stylesheet" href="css/pages.css">
 </head>
 <body class="page">
+  <script>if (window.RGDesktop) document.documentElement.classList.add("in-desktop");</script>
   <nav class="nav" aria-label="Main">
     <a class="chip brand" href="./">ReachGrid India</a>
-    <div class="center"><a class="chip" href="./?app=1">Workspace</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a><a class="chip" href="api.html">API</a></div>
+    <div class="center"><a class="chip" href="./#features">Features</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a></div>
     <button class="chip" onclick="print()">Print / PDF</button>
   </nav>
   <main class="doc">
@@ -24,7 +25,7 @@
       <li><a href="#scope">Scope and principles</a></li><li><a href="#data">Data sources and governance</a></li><li><a href="#demand">Demand model</a></li>
       <li><a href="#access">Reachability</a></li><li><a href="#candidates">Candidate sites</a></li><li><a href="#score">Scoring</a></li>
       <li><a href="#optimise">Optimisation</a></li><li><a href="#objectives">Planning objectives</a></li><li><a href="#confidence">Confidence</a></li>
-      <li><a href="#validation">Validation</a></li><li><a href="#monitor">Portfolio monitoring</a></li><li><a href="#limits">Limitations</a></li>
+      <li><a href="#validation">Validation</a></li><li><a href="#monitor">Portfolio monitoring</a></li><li><a href="#forecast">Multi-year forecast</a></li><li><a href="#limits">Limitations</a></li><li><a href="./#submission">Team &amp; disclosures</a></li>
     </ol>
 
     <h2 id="scope">1. Scope and principles</h2>
@@ -100,7 +101,14 @@
     <h2 id="monitor">11. Portfolio monitoring and recalibration</h2>
     <p>Sites marked as built become existing chargers in every later analysis. When observed sessions/day are recorded, ReachGrid fits observed ≈ k × predicted vehicle households captured (least squares through the origin) and reports k, R² and mean absolute percentage error. The commercial screen can then use the calibrated k instead of assumed adoption rates.</p>
 
-    <h2 id="limits">12. Limitations</h2>
+    <h2 id="forecast">12. Multi-year forecast and charger requirement</h2>
+    <p><b>Base.</b> VAHAN electric two-wheeler registrations by state and month (2020–2024) give 2024 registrations, the fleet registered since 2020 and the 2021→2024 growth rate. District values are allocated from the state by Census two-wheeler ownership (<span class="tag der">derived</span>). Uploaded VAHAN district counts replace the allocation.</p>
+    <p><b>Segments.</b> E3W, E4W and e-bus registrations use editable ratios to E2W (defaults 0.55, 0.09, 0.003; assumptions to replace with segment exports). The fleet in year y is last year's fleet plus new registrations, minus vehicles older than their life (default 10 years). Growth follows the state's VAHAN trend, easing linearly to a floor (12%) by 2030, or a moderate, conservative or custom scenario.</p>
+    <div class="formula-block">AC points(y) = ⌈(E2W·kWh·public + E3W·kWh·public) / kWh per AC point per day⌉     DC points(y) = ⌈(E4W·… + bus·…) / kWh per DC point per day⌉</div>
+    <p>The gap is required points minus existing points (published guns, plus imputed guns for sites that publish none). Separately, the spatial requirement is the number of new sites the greedy optimiser needs to bring a target share of people within τ. Capacity need and coverage need answer different questions, so both are reported.</p>
+    <p><b>Grid proximity.</b> Feasibility includes distance to the nearest electricity asset: OpenStreetMap substations when the refresh workflow can fetch them, else WRI power plants (a coarser proxy, 80 km scale). Proximity is not spare capacity; that comes from the DISCOM through the Evidence tab.</p>
+
+    <h2 id="limits">13. Limitations</h2>
     <ul>
       <li>Charger listings are point-in-time: power and tariff are missing for about 45%, and operational status is not observed.</li>
       <li>Demand is Census 2011. Growth since then is not modelled unless EV registrations are uploaded.</li>

@@ -11,10 +11,11 @@
   <link rel="stylesheet" href="css/pages.css">
 </head>
 <body class="page">
+  <script>if (window.RGDesktop) document.documentElement.classList.add("in-desktop");</script>
   <nav class="nav" aria-label="Main">
     <a class="chip brand" href="./">ReachGrid India</a>
-    <div class="center"><a class="chip" href="./?app=1">Workspace</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a><a class="chip" href="api.html">API</a></div>
-    <a class="chip cta" href="./?app=1">Open workspace</a>
+    <div class="center"><a class="chip" href="./#features">Features</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a></div>
+    <a class="chip cta" href="./#install">Download for Windows</a>
   </nav>
   <main class="doc">
     <p class="eyebrow mono">API · v1 · proposal §7.2</p>
@@ -74,8 +75,10 @@ const scenario = await res.json();   // 201 Created, Location: api/v1/scenarios/
     const $ = (s) => document.querySelector(s);
     $("#presets").innerHTML = presets.map((p, i) => `<button class="btn sm ghost" data-p="${i}">${p[0]}</button>`).join("");
     document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => { const [, m, path, body] = presets[+b.dataset.p]; $("#method").value = m; $("#path").value = path; $("#body").value = body; send(); });
+    const DESK = window.RGDesktop || null;
     async function ready() {
       const st = $("#status");
+      if (DESK) { const r = await fetch("api/v1", { headers: { "X-Session-Token": (DESK.session() || {}).token || "" } }); const j = await r.json(); st.innerHTML = `<span class="tag obs">online</span> ${j.name} ${j.version}: ${j.transport}. External tools use <span class="mono">http://127.0.0.1:${DESK.info().port}/api/v1</span> with the X-API-Key from Settings → Local API.`; return true; }
       if (!("serviceWorker" in navigator)) { st.innerHTML = "This browser has no service workers, so the API can't run here."; return false; }
       if (!isSecureContext) { st.innerHTML = "Service workers need https or localhost. Open this page over <span class='mono'>python serve.py</span> or GitHub Pages."; return false; }
       await navigator.serviceWorker.register("sw.js");
@@ -88,7 +91,7 @@ const scenario = await res.json();   // 201 Created, Location: api/v1/scenarios/
     async function send() {
       if (!(await isReady)) return;
       const m = $("#method").value, path = $("#path").value.trim().replace(/^\//, "");
-      const init = { method: m, headers: {} };
+      const init = { method: m, headers: DESK ? { "X-Session-Token": (DESK.session() || {}).token || "" } : {} };
       if (m === "POST") { init.headers["Content-Type"] = "application/json"; init.body = $("#body").value || "{}"; }
       $("#out").textContent = "…"; const t0 = performance.now();
       try {
