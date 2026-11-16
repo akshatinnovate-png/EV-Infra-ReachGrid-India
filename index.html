@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReachGrid India</title>
+  <meta name="description" content="EV charging access intelligence for every state and district in India: real charger data, census demand, gap detection and budget-constrained site optimisation.">
+  <meta name="theme-color" content="#f2879f">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e44fbf'/%3E%3Cpath d='M18 4 8 18h7l-2 10 11-15h-7z' fill='%231b1b1d'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="boot" role="status" aria-live="polite">
+    <div class="bootwin">
+      <div class="tb">ReachGrid 1.0</div>
+      <div class="bd">
+        <div>Loading ...</div>
+        <div id="boot-step">Boundaries, census, chargers</div>
+        <div class="bar"><i id="boot-bar"></i><b id="boot-pct">0%</b></div>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav" aria-label="Main">
+    <a class="chip brand" href="#top">ReachGrid India</a>
+    <div class="center">
+      <a class="chip" href="#atlas" data-go="atlas">Atlas</a>
+      <a class="chip" href="#atlas" data-go="corridor">Corridors</a>
+      <a class="chip" href="#method">Method</a>
+      <a class="chip" href="#sources">Sources</a>
+    </div>
+    <button class="chip clock" id="theme-toggle" title="Toggle light/dark">◐</button>
+    <a class="chip cta" href="#atlas" data-go="atlas">Open Atlas</a>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="clouds" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="news">
+      <div class="win newswin">
+        <div class="tb"><span class="t" id="news1-t">Data build • ReachGrid News</span></div>
+        <div class="bd">
+          <div class="big">EVERY STATE. EVERY DISTRICT.</div>
+          <div id="news1-b">Real charging stations, census demand and highways for all of India</div>
+          <div style="margin-top:14px"><a class="btn" href="#atlas" data-go="atlas">Open the atlas</a></div>
+        </div>
+      </div>
+      <div class="win newswin">
+        <div class="tb"><span class="t">Method • ReachGrid News</span></div>
+        <div class="bd">
+          <div>⚡ Not another charger map: a decision engine for<br>marginal access per rupee</div>
+          <div style="margin-top:12px"><a class="linkbtn" href="#method">Read the method</a></div>
+        </div>
+      </div>
+    </div>
+    <p class="intro">Introducing ReachGrid <span class="dots">.......................</span> Intelligence beyond the charger map</p>
+    <h1 class="headline">Measure Access. Optimise Investment. Scale With Evidence.
+      <span class="play"><a href="#atlas" data-go="atlas">Find the gaps near you</a><a href="#atlas" data-go="atlas" aria-label="Open atlas">▶</a></span>
+    </h1>
+    <div class="vstring" id="vstring" aria-hidden="true"></div>
+  </header>
+
+  <section class="desk-wrap" id="atlas" aria-label="Atlas">
+    <div class="desk-head"><span>RG.OS1 · India → State → District</span><span id="desk-meta"></span></div>
+    <div class="desk">
+      <div class="blob a"></div><div class="blob b"></div>
+      <div class="label">RG.OS1</div>
+      <div class="crumbs" id="crumbs"></div>
+      <div id="map" role="application" aria-label="Map of India"></div>
+      <div class="desk-order">
+        <section class="win fw" id="w-nav" aria-label="Navigator">
+          <div class="tb"><span class="t" id="nav-title">Navigator</span><button data-min aria-label="Minimise">_</button></div>
+          <div class="bd" id="nav-body"></div>
+        </section>
+        <section class="win fw" id="w-insp" aria-label="Inspector">
+          <div class="tb"><span class="t" id="insp-title">Inspector</span><button data-min aria-label="Minimise">_</button></div>
+          <div class="bd" id="insp-body"></div>
+        </section>
+        <section class="win fw" id="w-legend" aria-label="Legend and layers">
+          <div class="tb"><span class="t">Legend · Layers</span><button data-min aria-label="Minimise">_</button></div>
+          <div class="bd" id="legend-body"></div>
+        </section>
+        <section class="win fw glass" id="w-ask" aria-label="Ask ReachGrid">
+          <video src="media/prism.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+          <div class="tb"><span class="t">Ask ReachGrid</span><button data-min aria-label="Minimise">_</button></div>
+          <div class="bd" id="ask-body"></div>
+        </section>
+        <section class="win fw" id="w-clock" aria-label="Status">
+          <div class="tb"><span class="t">Clock Tool 1.1</span><button data-min aria-label="Minimise">_</button></div>
+          <div class="bd mono" id="clock-body"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <section class="forest" id="method">
+    <video class="poster" src="media/forest.mp4" poster="media/forest.jpg" autoplay muted loop playsinline aria-hidden="true"></video>
+    <div class="inner">
+      <h2>Green mobility runs on evidence, not pins.</h2>
+      <p class="lead">A high charger count does not mean good access. ReachGrid measures who is out of reach, explains every recommendation and tests which deployments buy the most new access per rupee, with confidence shown separately from the score.</p>
+      <div class="statband" id="statband"></div>
+      <div class="method-grid">
+        <div class="win"><div class="tb"><span class="t">1 · Reachability engine</span></div><div class="bd">
+          Each district is tiled into hex demand cells (~260 per district). Census 2011 population is placed on them: the urban share around GeoNames towns with a Gaussian kernel, the rural share spread evenly.
+          <div class="formula">Aᵢ = 1[min d(i, s) · detour ≤ τ]</div>
+          <div class="formula">Coverage = Σ wᵢAᵢ / Σ wᵢ</div>
+          Chargers outside the district still count, so borders don't create fake gaps.</div></div>
+        <div class="win"><div class="tb"><span class="t">2 · Gap intelligence</span></div><div class="bd">
+          Candidates: towns with no charger within 1 km, highway points every 8 km, and unserved demand hotspots.
+          <div class="formula">P = .30·Gap + .25·EVPressure + .20·Corridor + .15·Equity + .10·Feasibility</div>
+          Unknown components are excluded and weights renormalised, never zero-filled.</div></div>
+        <div class="win"><div class="tb"><span class="t">3 · Site optimiser</span></div><div class="bd">
+          Greedy marginal gain: repeatedly add the site with the largest newly-covered demand per ₹, recomputing coverage after every pick, until the budget runs out.
+          <div class="formula">max Σ wᵢ·1[min d(i, S ∪ X) ≤ τ]  s.t. Σ cⱼxⱼ ≤ B</div>
+          Compared against score-only and EV/charger-ratio baselines, plus an equity-weighted variant.</div></div>
+        <div class="win"><div class="tb"><span class="t">4 · Confidence ledger</span></div><div class="bd">
+          Every number is tagged <span class="tag obs">observed</span> <span class="tag der">derived</span> <span class="tag imp">imputed</span>. District census figures for post-2011 districts are apportioned with an area- and settlement-weighted crosswalk against the 2011 polygons. Confidence never changes the score; it decides what to verify first.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sources" id="sources">
+    <h2>Sources, licences, limits.</h2>
+    <div class="win"><div class="tb"><span class="t">Source registry · data build</span></div><div class="bd" id="sources-body"></div></div>
+  </section>
+
+  <footer>
+    <span>ReachGrid India · Team GoingAgain · Techfest 2026–27 EV Infra Challenge 1</span>
+    <span>Charger data © contributors, ODbL 1.0 · Census of India 2011 · DataMeet CC BY 4.0 · GeoNames CC BY 4.0 · Natural Earth</span>
+    <span>Screening tool: does not certify grid capacity, land, permits or profitability.</span>
+  </footer>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/region.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
