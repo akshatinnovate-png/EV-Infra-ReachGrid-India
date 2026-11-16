@@ -30,8 +30,10 @@
     <div class="center">
       <a class="chip" href="#atlas" data-go="atlas">Atlas</a>
       <a class="chip" href="#atlas" data-go="corridor">Corridors</a>
-      <a class="chip" href="#method">Method</a>
-      <a class="chip" href="#sources">Sources</a>
+      <a class="chip" href="methodology.html">Method</a>
+      <a class="chip" href="business.html">Business</a>
+      <a class="chip" href="api.html">API</a>
+      <a class="chip" href="./?app=1&amp;tour=1">Demo</a>
     </div>
     <button class="chip clock" id="theme-toggle" title="Toggle light/dark">◐</button>
     <a class="chip cta" href="#atlas" data-go="atlas">Open Atlas</a>
@@ -155,6 +157,9 @@
           Greedy marginal gain: repeatedly add the site with the largest newly-covered demand per ₹, recomputing coverage after every pick, until the budget runs out.
           <div class="formula">max Σ wᵢ·1[min d(i, S ∪ X) ≤ τ]  s.t. Σ cⱼxⱼ ≤ B</div>
           Compared against score-only and EV/charger-ratio baselines, plus an equity-weighted variant.</div></div>
+        <div class="win"><div class="tb"><span class="t">5 · Validated, documented</span></div><div class="bd">
+          23 automated acceptance tests, a holdout backtest against where operators really built, an exact ILP benchmark, sensitivity analysis and a weekly data refresh.
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" href="methodology.html">Methodology</a><a class="btn sm ghost" href="business.html">Business model</a><a class="btn sm ghost" href="api.html">API</a></div></div></div>
         <div class="win"><div class="tb"><span class="t">4 · Confidence ledger</span></div><div class="bd">
           Every number is tagged <span class="tag obs">observed</span> <span class="tag der">derived</span> <span class="tag imp">imputed</span>. District census figures for post-2011 districts are apportioned with an area- and settlement-weighted crosswalk against the 2011 polygons. Confidence never changes the score; it decides what to verify first.</div></div>
       </div>
@@ -173,8 +178,11 @@
   </footer>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/lp-solver.js"></script>
   <script src="js/engine.js"></script>
   <script src="js/region.js"></script>
+  <script src="js/advanced.js"></script>
+  <script src="js/jobs.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

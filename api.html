@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReachGrid API</title>
+  <meta name="description" content="ReachGrid India scenario API (proposal §7.2), served by a service worker with no server.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e44fbf'/%3E%3Cpath d='M18 4 8 18h7l-2 10 11-15h-7z' fill='%231b1b1d'/%3E%3C/svg%3E">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="page">
+  <nav class="nav" aria-label="Main">
+    <a class="chip brand" href="./">ReachGrid India</a>
+    <div class="center"><a class="chip" href="./?app=1">Workspace</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a><a class="chip" href="api.html">API</a></div>
+    <a class="chip cta" href="./?app=1">Open workspace</a>
+  </nav>
+  <main class="doc">
+    <p class="eyebrow mono">API · v1 · proposal §7.2</p>
+    <h1>A scenario API with no server.</h1>
+    <p class="lead">The proposal's API contracts run inside your browser. A <b>service worker</b> intercepts requests to <span class="mono">api/v1/…</span>, runs the same engine as the workspace on the bundled data, and stores scenarios in IndexedDB. Identical inputs on the same data build return the same <span class="mono">scenario_id</span>.</p>
+    <div class="win"><div class="tb"><span class="t">Status</span></div><div class="bd" id="status">Checking service worker…</div></div>
+
+    <h2>Endpoints</h2>
+    <table class="t doc-t">
+      <thead><tr><th>Method</th><th>Path</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr><td><b>GET</b></td><td class="mono">api/v1/geographies[?state=]</td><td>States, or districts of a state</td></tr>
+        <tr><td><b>GET</b></td><td class="mono">api/v1/geographies/{id}/baseline</td><td>Baseline access metrics, layer coverage, data dates, quality warnings. Query: <span class="mono">threshold_km, detour, distance_metric, charger_filter</span></td></tr>
+        <tr><td><b>POST</b></td><td class="mono">api/v1/scenarios</td><td><span class="mono">scenario_id, selected_candidate_ids, baseline_metrics, proposed_metrics, assumptions, confidence_warnings</span></td></tr>
+        <tr><td><b>GET</b></td><td class="mono">api/v1/scenarios</td><td>Stored scenarios</td></tr>
+        <tr><td><b>GET</b></td><td class="mono">api/v1/scenarios/{id}</td><td>Stored inputs, selected sites, score decomposition, coverage deltas, sensitivity results, provenance</td></tr>
+        <tr><td><b>DELETE</b></td><td class="mono">api/v1/scenarios/{id}</td><td>204</td></tr>
+        <tr><td><b>GET</b></td><td class="mono">api/v1/openapi.json</td><td>OpenAPI 3.1 description</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Try it</h2>
+    <div class="win"><div class="tb"><span class="t">Console</span></div><div class="bd">
+      <div class="presets" id="presets"></div>
+      <div class="grid2" style="grid-template-columns:110px 1fr;gap:8px">
+        <select id="method"><option>GET</option><option>POST</option><option>DELETE</option></select>
+        <input type="text" id="path" value="api/v1/geographies/jharkhand.east-singhbhum/baseline">
+      </div>
+      <textarea id="body" rows="9" spellcheck="false" placeholder="JSON body for POST"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin:8px 0"><button class="btn" id="send">Send request</button><span class="sub mono" id="meta"></span></div>
+      <pre id="out" class="out">Response appears here.</pre>
+    </div></div>
+
+    <h2>From your own page</h2>
+<pre class="out">const res = await fetch("api/v1/scenarios", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    geography_id: "maharashtra.pune", objective_profile: "coverage",
+    threshold_km: 10, budget_lakh: 500, distance_metric: "straight",
+    cost_model: { hardware: "dc60" }, include_sensitivity: true
+  })
+});
+const scenario = await res.json();   // 201 Created, Location: api/v1/scenarios/{id}</pre>
+    <p class="sub">Limits: a service worker answers requests from pages on this site's origin (after its first load). Tools outside the browser such as curl can't reach it; the same engine runs in Node (see <span class="mono">tests/</span>) for server-side use.</p>
+  </main>
+  <script>
+    const presets = [
+      ["List states", "GET", "api/v1/geographies", ""],
+      ["Districts of Jharkhand", "GET", "api/v1/geographies?state=jharkhand", ""],
+      ["Baseline: East Singhbhum", "GET", "api/v1/geographies/jharkhand.east-singhbhum/baseline?threshold_km=10", ""],
+      ["Run scenario: Pune coverage", "POST", "api/v1/scenarios", JSON.stringify({ geography_id: "maharashtra.pune", objective_profile: "coverage", threshold_km: 10, budget_lakh: 300, distance_metric: "straight", cost_model: { hardware: "dc60" } }, null, 2)],
+      ["Run scenario: Jharkhand equity + sensitivity", "POST", "api/v1/scenarios", JSON.stringify({ geography_id: "jharkhand", objective_profile: "equity", threshold_km: 15, budget_lakh: 2000, include_sensitivity: true }, null, 2)],
+      ["List scenarios", "GET", "api/v1/scenarios", ""],
+      ["OpenAPI", "GET", "api/v1/openapi.json", ""],
+      ["Invalid input (400)", "POST", "api/v1/scenarios", JSON.stringify({ geography_id: "jharkhand", threshold_km: -4 }, null, 2)],
+    ];
+    const $ = (s) => document.querySelector(s);
+    $("#presets").innerHTML = presets.map((p, i) => `<button class="btn sm ghost" data-p="${i}">${p[0]}</button>`).join("");
+    document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => { const [, m, path, body] = presets[+b.dataset.p]; $("#method").value = m; $("#path").value = path; $("#body").value = body; send(); });
+    async function ready() {
+      const st = $("#status");
+      if (!("serviceWorker" in navigator)) { st.innerHTML = "This browser has no service workers, so the API can't run here."; return false; }
+      if (!isSecureContext) { st.innerHTML = "Service workers need https or localhost. Open this page over <span class='mono'>python serve.py</span> or GitHub Pages."; return false; }
+      await navigator.serviceWorker.register("sw.js");
+      if (!navigator.serviceWorker.controller) await new Promise(r => navigator.serviceWorker.addEventListener("controllerchange", r, { once: true }));
+      const r = await fetch("api/v1"); const j = await r.json();
+      st.innerHTML = `<span class="tag obs">online</span> ${j.name} ${j.version}, served by a service worker. Data build loads on first call.`;
+      return true;
+    }
+    const isReady = ready().catch(e => { $("#status").textContent = "Service worker failed: " + e.message; return false; });
+    async function send() {
+      if (!(await isReady)) return;
+      const m = $("#method").value, path = $("#path").value.trim().replace(/^\//, "");
+      const init = { method: m, headers: {} };
+      if (m === "POST") { init.headers["Content-Type"] = "application/json"; init.body = $("#body").value || "{}"; }
+      $("#out").textContent = "…"; const t0 = performance.now();
+      try {
+        const r = await fetch(path, init);
+        const text = r.status === 204 ? "" : await r.text();
+        $("#meta").textContent = `${r.status} ${r.statusText || ""} · ${(performance.now() - t0).toFixed(0)} ms${r.headers.get("Location") ? " · Location: " + r.headers.get("Location") : ""}`;
+        $("#out").textContent = text || "(no content)";
+        const loc = r.headers.get("Location"); if (loc && m === "POST") { $("#method").value = "GET"; $("#path").value = loc.replace(/^.*?(api\/v1)/, "$1"); $("#body").value = ""; }
+      } catch (e) { $("#out").textContent = "Request failed: " + e.message; }
+    }
+    $("#send").onclick = send;
+  </script>
+</body>
+</html>

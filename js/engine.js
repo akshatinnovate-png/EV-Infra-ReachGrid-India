@@ -106,6 +106,8 @@
     siteCost: { highway: 8, town: 5, hotspot: 6 },                 // ₹ lakh civil / lease / grid connection (assumption)
     budgetLakh: 250,
     budgetStateLakh: 2500,
+    metric: "straight",                   // straight | network (coarse highway graph)
+    commercial: { evShare: 0.03, sessionsPerEvWeek: 0.5, kwhPerSession: 18, marginPerKwh: 6, opexLakhYr: 2.5 }, // hypotheses
     chargerFilter: "all",                  // all | dc | verified
   };
 
@@ -191,7 +193,10 @@
     return out;
   }
 
-  function siteCost(c, opts) { return opts.hardwareCost[opts.hardware] + opts.siteCost[c.host]; }
+  function siteCost(c, opts) {
+    if (c.costOverride != null) return c.costOverride;
+    return opts.hardwareCost[opts.hardware] + (opts.siteCost[c.host] ?? opts.siteCost.town);
+  }
 
   /** score candidates (proposal §6.3) with renormalisation for unavailable components */
   function scoreCandidates(cands, ctx, opts) {
@@ -216,7 +221,7 @@
         pressure: vh / (1 + localChargers),
         vehicleHH: vh, localChargers,
         corridor: Math.max(0, 1 - road / 10), roadKm: road,
-        feasibility: c.host === "highway" ? (c.placeDist != null && c.placeDist < 3 ? 0.75 : 0.6) : c.host === "town" ? 0.65 : null,
+        feasibility: c.evFeas != null ? c.evFeas : c.host === "highway" ? (c.placeDist != null && c.placeDist < 3 ? 0.75 : 0.6) : c.host === "town" ? 0.65 : null,
       };
       c.cost = siteCost(c, opts);
     }
@@ -242,8 +247,9 @@
     const near = ctx.chargerIdx.within(c.lat, c.lng, 15).map(n => ctx.chargerIdx.pts[n.i]);
     const ver = near.length ? near.filter(p => p.verified).length / near.length : 0.5;
     parts.push(["Charger listings nearby", 0.4 + 0.6 * ver, near.length ? `${Math.round(ver * 100)}% of ${near.length} nearby sites in ≥2 sources` : "no nearby listings"]);
-    parts.push(["Distance metric", 0.6, "straight line × detour factor (no road routing)"]);
-    parts.push(["Host feasibility", c.raw.feasibility == null ? 0.3 : 0.6, c.raw.feasibility == null ? "host unknown, needs survey" : "host type inferred, grid capacity unknown"]);
+    parts.push(["Distance metric", ctx.metric === "network" ? 0.7 : 0.6, ctx.metric === "network" ? "routed on coarse highway graph" : "straight line × detour factor (no road routing)"]);
+    parts.push(["Host feasibility", c.evidence ? (c.evidence.status === "ok" ? 0.95 : 0.5) : c.raw.feasibility == null ? 0.3 : 0.6,
+      c.evidence ? `field evidence: ${c.evidence.status}${c.evidence.grid_kva ? `, ${c.evidence.grid_kva} kVA` : ""}${c.evidence.land ? `, land ${c.evidence.land}` : ""}` : c.raw.feasibility == null ? "host unknown, needs survey" : "host type inferred, grid capacity unknown"]);
     const v = parts.reduce((a, p) => a + p[1], 0) / parts.length;
     return { value: v, grade: v >= 0.72 ? "High" : v >= 0.55 ? "Medium" : "Low", parts };
   }
@@ -253,9 +259,12 @@
     const d = Float64Array.from(base.dist);
     for (const c of selected) for (const [i, km] of c.reach) if (km < d[i]) d[i] = km;
     let cov = 0, tot = 0, ws = 0, far = 0, farCov = 0;
+    const med = cells.map(c => c[2]).sort((a, b) => a - b)[Math.floor(cells.length / 2)] || 0;
+    let dense = 0, denseCov = 0, sparse = 0, sparseCov = 0;
     for (let i = 0; i < cells.length; i++) {
       const w = cells[i][2]; tot += w; if (d[i] <= opts.tauKm) cov += w; if (isFinite(d[i])) ws += w * d[i];
       if (base.dist[i] > 2 * opts.tauKm) { far += w; if (d[i] <= opts.tauKm) farCov += w; }
+      if (w > med) { dense += w; if (d[i] <= opts.tauKm) denseCov += w; } else { sparse += w; if (d[i] <= opts.tauKm) sparseCov += w; }
     }
     const cost = selected.reduce((a, c) => a + c.cost, 0);
     const newly = cov - base.covered;
@@ -263,10 +272,14 @@
       coverage: tot ? cov / tot : 0, covered: cov, newlyCovered: newly, meanDist: tot ? ws / tot : 0,
       cost, sites: selected.length, costPerPerson: newly > 0 ? (cost * 1e5) / newly : null,
       worstServed: far ? farCov / far : null, farPop: far, dist: d,
+      denseCoverage: dense ? denseCov / dense : null, sparseCoverage: sparse ? sparseCov / sparse : null,
+      equityGap: dense && sparse ? denseCov / dense - sparseCov / sparse : null,
     };
   }
 
-  function greedy(cells, base, cands, opts, mode = "gain") {
+  function greedy(cells, base, cands, opts, mode = "gain", ctx = null) {
+    if (mode === "commercial") return commercialGreedy(cells, base, cands, opts, ctx);
+    if (mode === "corridor") cands = cands.filter(c => c.host === "highway" || (c.raw && c.raw.roadKm < 2));
     const tau = opts.tauKm, B = opts.budgetLakh;
     const d = Float64Array.from(base.dist);
     const chosen = [], steps = [], used = new Set();
@@ -275,7 +288,7 @@
     for (;;) {
       let best = null;
       for (const c of cands) {
-        if (used.has(c.id) || c.cost > remaining + 1e-9) continue;
+        if (used.has(c.id) || c.cost > remaining + 1e-9 || c.blocked) continue;
         let g = 0;
         for (const [i, km] of c.reach) if (d[i] > tau && km <= tau) g += weightOf(i);
         if (g <= 0) continue;
@@ -290,21 +303,53 @@
     return { selected: chosen, steps };
   }
 
+  /** commercial screening: maximise vehicle-household demand captured per ₹, sharing each cell's demand
+   *  equally among all chargers that reach it (existing + already selected). Coverage is not the goal. */
+  function competitorCounts(ctx, opts) {
+    const key = opts.tauKm + "|" + opts.detour;
+    if (ctx._comp && ctx._compKey === key) return ctx._comp;
+    const comp = new Uint16Array(ctx.cells.length);
+    ctx.cells.forEach((c, i) => { comp[i] = Math.min(65535, ctx.chargerIdx.within(c[1], c[0], opts.tauKm / opts.detour).length); });
+    ctx._comp = comp; ctx._compKey = key; return comp;
+  }
+  function commercialGreedy(cells, base, cands, opts, ctx) {
+    const tau = opts.tauKm, comp = competitorCounts(ctx, opts), sel = new Uint16Array(cells.length);
+    const vh = (i) => cells[i][2] * (ctx.vehicleRate[i] || 0);
+    const chosen = [], steps = [], used = new Set(); let remaining = opts.budgetLakh;
+    for (;;) {
+      let best = null;
+      for (const c of cands) {
+        if (used.has(c.id) || c.cost > remaining + 1e-9 || c.blocked) continue;
+        let g = 0; for (const [i, km] of c.reach) if (km <= tau) g += vh(i) / (comp[i] + sel[i] + 1);
+        const r = g / c.cost;
+        if (g > 0 && (!best || r > best.r || (r === best.r && c.id < best.c.id))) best = { c, g, r };
+      }
+      if (!best) break;
+      used.add(best.c.id); chosen.push(best.c); remaining -= best.c.cost; best.c.capture = best.g;
+      for (const [i, km] of best.c.reach) if (km <= tau) sel[i]++;
+      steps.push({ id: best.c.id, gain: best.g, ratio: best.r, remaining, unit: "vehicle households captured" });
+    }
+    return { selected: chosen, steps };
+  }
+
   function byRank(cands, opts, key) {
     const sorted = [...cands].sort((a, b) => key(b) - key(a) || (a.id < b.id ? -1 : 1));
     let rem = opts.budgetLakh; const sel = [];
-    for (const c of sorted) if (c.cost <= rem + 1e-9 && key(c) > 0) { sel.push(c); rem -= c.cost; }
+    for (const c of sorted) if (!c.blocked && c.cost <= rem + 1e-9 && key(c) > 0) { sel.push(c); rem -= c.cost; }
     return { selected: sel, steps: [] };
   }
 
   function runScenarios(ctx, cands, opts) {
     const { cells, base } = ctx;
     const plans = {
-      greedy: { name: "Greedy marginal gain per ₹", ...greedy(cells, base, cands, opts, "gain") },
-      equity: { name: "Equity-weighted greedy", ...greedy(cells, base, cands, opts, "equity") },
+      greedy: { name: "Greedy marginal gain per ₹", objective: "coverage", ...greedy(cells, base, cands, opts, "gain") },
+      equity: { name: "Equity-weighted greedy", objective: "equity", ...greedy(cells, base, cands, opts, "equity") },
+      corridor: { name: "Corridor reach (highway sites)", objective: "corridor", ...greedy(cells, base, cands, opts, "corridor") },
+      commercial: { name: "Commercial screening", objective: "commercial", ...greedy(cells, base, cands, opts, "commercial", ctx) },
       score: { name: "Score-only ranking", ...byRank(cands, opts, c => c.score) },
       ratio: { name: "EV/charger ratio baseline", ...byRank(cands, opts, c => c.raw.pressure) },
     };
+    if (opts.objectivesOnly) for (const k of Object.keys(plans)) if (!opts.objectivesOnly.includes(k)) delete plans[k];
     for (const k in plans) plans[k].metrics = evaluate(cells, base, plans[k].selected, opts);
     return plans;
   }
@@ -405,6 +450,6 @@
     return { total, stops, gaps, maxGap, maxAt, feasible: ok, plan, usable, dense };
   }
 
-  const E = { hav, GridIndex, pointInGeom, bbox, distToLine, DEFAULTS, baseline, histogram, generateCandidates, scoreCandidates, confidenceFor, evaluate, greedy, byRank, runScenarios, sensitivity, jaccard, buildGraph, route, corridorGaps };
+  const E = { hav, GridIndex, pointInGeom, bbox, distToLine, DEFAULTS, siteCost, competitorCounts, baseline, histogram, generateCandidates, scoreCandidates, confidenceFor, evaluate, greedy, byRank, runScenarios, sensitivity, jaccard, buildGraph, route, corridorGaps };
   if (typeof module !== "undefined" && module.exports) module.exports = E; else root.RGEngine = E;
 })(typeof self !== "undefined" ? self : this);

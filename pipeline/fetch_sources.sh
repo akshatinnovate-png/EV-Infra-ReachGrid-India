@@ -23,8 +23,11 @@ curl -fsSL -o raw/census2011_districts.csv "$GH/nishusharma1608/India-Census-201
 echo "[4/4] Natural Earth 10m roads (public domain)"
 curl -fsSL -o raw/ne_10m_roads.geojson "$GH/nvkelso/natural-earth-vector/master/geojson/ne_10m_roads.geojson"
 
-echo "GeoNames places: run 'npm pack all-the-cities@3.1.0' and extract cities.pbf to raw/cities.pbf,"
-echo "then: node decode_cities.js raw/cities.pbf raw/cities_in.json"
+echo "[+] GeoNames places (all-the-cities npm package, data CC BY 4.0 GeoNames)"
+TMPD=$(mktemp -d)
+( cd "$TMPD" && npm pack --silent all-the-cities@3.1.0 >/dev/null && tar xzf all-the-cities-3.1.0.tgz )
+cp "$TMPD/package/cities.pbf" raw/cities.pbf && rm -rf "$TMPD"
+node decode_cities.js raw/cities.pbf raw/cities_in.json
 
 echo "[5] Census 2011 district polygons (DataMeet, CC BY 4.0)"
 mkdir -p raw/c2011

@@ -85,10 +85,39 @@ Panel layout and sizes are remembered. On phones the panels stack under the map.
   tariffs, reliability, "X to Y by EV"). There is an optional Claude mode using your own Anthropic API key, sent straight from your browser
   to the API and stored only if you choose.
 
+## Everything in the proposal, as a static site
+
+| Proposal item | Where |
+|---|---|
+| Reachability engine, gap intelligence, confidence ledger, site optimiser (§3, §6) | Workspace → Plan |
+| Planning objectives: coverage, equity, corridor reach, commercial screening (§3.2) | Plan → Planning objective |
+| Road-network distance (§6.1) | Plan → Distance metric → Highway network (Dijkstra on the national highway graph) |
+| Feasibility screen with real evidence (§3) | Evidence tab: CSV upload or add on map (status, kVA, land, cost) |
+| EV registrations (§5) | Evidence tab: VAHAN district CSV replaces the Census proxy |
+| Budget scenarios (§6.5) | Compare → budget curve (8 budgets) |
+| Integer programming / local search (§6.4) | Compare → optimiser comparison (exact ILP via jsLPSolver, LP bound, optimality gap) |
+| Sensitivity report with charts and export (§6.5, §15) | Compare → sensitivity (CSV / JSON) |
+| Equity metrics (§8.1) | Validate → dense vs sparse coverage, equity gap, worst-served reached |
+| Holdout validation (§8, §12) | Validate → backtest against where operators really built |
+| Live acceptance tests (§8) | Validate → self-tests; `node tests/*.test.js` in CI |
+| Portfolio Monitor with recalibration (§3) | Portfolio tab: built sites, observed usage, fitted k / R² / MAPE |
+| Human review before capital spend (§13) | Site card → propose / approve / reject; review queue |
+| Roles, audit log, encrypted export (§13) | Toolbar role; Ledger → hash-chained audit log; Plan → encrypted export (AES-256-GCM) |
+| Official count cross-check (§5) | India inspector + state overview (BEE, March 2024) |
+| API contracts (§7.2) | [`api.html`](api.html): `POST /api/v1/scenarios` etc., served by a service worker, stored in IndexedDB |
+| Asynchronous jobs (§14.1) | Web Worker (`js/worker.js`) |
+| Automated refresh and change detection (§10, §14) | `.github/workflows/refresh.yml` weekly rebuild → change report in Ledger |
+| Methodology document (§15) | [`methodology.html`](methodology.html) |
+| Commercial model, unit economics, bottom-up TAM, roadmap (§9–§14) | [`business.html`](business.html) calculators |
+| Demonstration walkthrough (§15) | Toolbar → ▶ Demo, or `?app=1&tour=1` |
+
+Limits that a static site cannot remove: roles and the audit log are enforced in the browser, not on a server; the API answers only pages on this origin; the highway graph is 1:10m, not street-level.
+
 ## Tests
 
 ```bash
 node tests/engine.test.js
+node tests/advanced.test.js
 ```
 
 The tests run against the real bundled data and cover the proposal §8 acceptance rules:

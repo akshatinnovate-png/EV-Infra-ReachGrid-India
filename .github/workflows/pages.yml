@@ -3,6 +3,9 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  workflow_run:
+    workflows: ["Refresh data"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -16,14 +19,19 @@ concurrency:
 
 jobs:
   test:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Engine acceptance tests
-        run: node tests/engine.test.js
+        run: |
+          node tests/engine.test.js
+          node tests/advanced.test.js
 
   deploy:
     needs: test
@@ -33,10 +41,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Assemble site
         run: |
           mkdir -p _site
-          cp -r index.html .nojekyll css js data media vendor _site/
+          cp -r index.html api.html methodology.html business.html sw.js .nojekyll css js data media vendor _site/
+          ls _site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

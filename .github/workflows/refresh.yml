@@ -1,0 +1,48 @@
+name: Refresh data
+
+# Rebuilds every data file from the public sources once a week (and on demand),
+# runs the acceptance tests, and commits the new build only if something changed.
+on:
+  schedule:
+    - cron: "17 3 * * 1"   # Mondays 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Tooling
+        run: |
+          pip install "shapely>=2"
+          npm install -g mapshaper
+          cd pipeline && npm install --no-save pbf@3
+      - name: Fetch sources
+        run: bash pipeline/fetch_sources.sh
+      - name: Build data
+        run: python pipeline/build.py
+      - name: Acceptance tests
+        run: |
+          node tests/engine.test.js
+          node tests/advanced.test.js
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- data; then echo "No data changes."; exit 0; fi
+          git config user.name "reachgrid-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          git commit -m "Data refresh $(date -u +%Y-%m-%d)"
+          git push

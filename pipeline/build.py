@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RAW = os.path.join(HERE, "raw")
 TMP = os.path.join(RAW, "_build")
 OUT = os.path.join(HERE, "..", "data")
-BUILD_VERSION = "2026.11.16-1"
+BUILD_VERSION = None  # set at run time: <UTC date>-<first 6 hex of the charger source hash>
 TARGET_CELLS = 260          # demand cells per district (approx.)
 THRESHOLDS_KM = (5, 10, 25)  # precomputed coverage thresholds
 
@@ -118,6 +118,7 @@ def main():
     os.makedirs(TMP, exist_ok=True)
     os.makedirs(os.path.join(OUT, "state"), exist_ok=True)
     started = dt.datetime.now(dt.timezone.utc)
+    global BUILD_VERSION
 
     src_files = {
         "boundaries": os.path.join(RAW, "geo", "states"),
@@ -130,6 +131,7 @@ def main():
     for k, p in src_files.items():
         if not os.path.exists(p):
             sys.exit(f"missing raw source {k}: {p} (run pipeline/fetch_sources.sh)")
+    BUILD_VERSION = started.strftime("%Y.%m.%d") + "-" + sha256(src_files["chargers"])[:6]
 
     # ---------------- 1. districts ----------------
     log("loading district boundaries")
@@ -511,9 +513,23 @@ def main():
         "totals": agg(range(len(districts))),
         "states": [], "districts": [],
     }
+    # official reference counts (BEE, March 2024) — shown side by side, never merged with the dataset
+    official = {}
+    off_path = os.path.join(HERE, "official_pcs_bee_mar2024.csv")
+    alias = {"nct-of-delhi": "delhi", "andaman-nicobar-island": "andaman-and-nicobar-islands",
+             "dadra-nagar-haveli-and-daman-diu": "dadra-and-nagar-haveli-and-daman-and-diu"}
+    for r in csv.DictReader(open(off_path, encoding="utf-8")):
+        k = slug(r["state"]); k = alias.get(k, k)
+        official[k] = int(r["official_pcs_mar2024"]) if r["official_pcs_mar2024"].strip() else None
+    sources.append({"id": "official_pcs", "title": "Official public charging stations by state, March 2024 (reference only)",
+                    "publisher": "Bureau of Energy Efficiency via data.gov.in (as tabulated in the charger dataset's dashboard)",
+                    "url": "https://data.gov.in", "licence": "GODL-India", "observed": "2024-03", "retrieved": retrieved, "kind": "observed",
+                    "limits": "Different definition (sanctioned/installed PCS) and date; compared, never added to the listing count.",
+                    "sha256": sha256(off_path)})
     for sid, idx in states.items():
         name, g = geo_states[sid]
         a = agg(idx)
+        a["official_pcs_mar2024"] = official.get(sid)
         india["states"].append({"id": sid, "name": name, "geom": geom_rounded(g, 3), "stats": a})
     for i, d in enumerate(districts):
         c = d["geom"].representative_point()
@@ -529,8 +545,29 @@ def main():
     india["places"] = sorted(
         ([pl["n"], r4(pl["lon"]), r4(pl["lat"]), pl["p"], d["id"]] for d in districts for pl in d["places"] if pl["p"] >= 20000),
         key=lambda x: -x[3])
+    # change report against the previous build (monitoring & refresh, proposal §10/§14)
+    prev_path = os.path.join(OUT, "india.js")
+    changes = {"version": BUILD_VERSION, "built": india["built"], "previous": None, "states": []}
+    if os.path.exists(prev_path):
+        try:
+            txt = open(prev_path, encoding="utf-8").read()
+            prev = json.loads(txt[txt.index("=") + 1:].rstrip().rstrip(";"))
+            pstates = {x["id"]: x["stats"] for x in prev["states"]}
+            changes["previous"] = {"version": prev.get("version"), "built": prev.get("built"), "chargers": prev["totals"]["chargers"]}
+            for st in india["states"]:
+                p = pstates.get(st["id"])
+                if p and (p["chargers"] != st["stats"]["chargers"] or abs(p["coverage"]["10"] - st["stats"]["coverage"]["10"]) > 1e-4):
+                    changes["states"].append({"id": st["id"], "name": st["name"], "chargers": [p["chargers"], st["stats"]["chargers"]],
+                                              "coverage10": [p["coverage"]["10"], st["stats"]["coverage"]["10"]]})
+        except Exception as e:  # never fail a build because the old file is unreadable
+            log(f"previous build unreadable: {e}")
+    if changes["previous"] and changes["previous"]["version"] == BUILD_VERSION and os.path.exists(os.path.join(OUT, "changes.js")):
+        pass  # same inputs rebuilt: keep the last real change report
+    else:
+        write_js(os.path.join(OUT, "changes.js"), "window.RG_CHANGES", changes)
+    india["changes"] = changes
     size = write_js(os.path.join(OUT, "india.js"), "window.RG_INDIA", india)
-    log(f"data/india.js {size/1e6:.2f} MB")
+    log(f"data/india.js {size/1e6:.2f} MB · build {BUILD_VERSION} · {len(changes['states'])} states changed vs previous")
 
     total = size
     for sid, idx in states.items():

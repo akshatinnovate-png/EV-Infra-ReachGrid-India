@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReachGrid Business Model</title>
+  <meta name="description" content="Revenue streams, unit economics and bottom-up market sizing calculators, go-to-market, risks and roadmap for ReachGrid India.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23e44fbf'/%3E%3Cpath d='M18 4 8 18h7l-2 10 11-15h-7z' fill='%231b1b1d'/%3E%3C/svg%3E">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter+Tight:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/pages.css">
+</head>
+<body class="page">
+  <nav class="nav" aria-label="Main">
+    <a class="chip brand" href="./">ReachGrid India</a>
+    <div class="center"><a class="chip" href="./?app=1">Workspace</a><a class="chip" href="methodology.html">Methodology</a><a class="chip" href="business.html">Business</a><a class="chip" href="api.html">API</a></div>
+    <button class="chip" onclick="print()">Print / PDF</button>
+  </nav>
+  <main class="doc">
+    <p class="eyebrow mono">Business model · roadmap · proposal §9–§14</p>
+    <h1>Software revenue, not chargers.</h1>
+    <p class="lead">ReachGrid is a B2B/B2G geospatial decision-support product. It doesn't own stations or take a share of electricity sales. Every price, count and rate below is a <b>hypothesis to test with customers</b>, not an observed market figure. The calculators let you replace them with validated numbers.</p>
+    <div class="hyp">Scenarios here are arithmetic, not forecasts. Annualised revenue is not profit and not cash collected. Public-sector procurement cycles are long and are not treated as guaranteed revenue.</div>
+
+    <h2>Revenue streams</h2>
+    <table class="t doc-t"><thead><tr><th>Stream</th><th>Buyer</th><th>Pricing hypothesis</th><th>In the product today</th></tr></thead><tbody>
+      <tr><td><b>Annual analytics subscription</b></td><td>CPOs, fleet operators, real-estate groups</td><td>₹3–12 lakh / organisation / year</td><td>Workspace: atlas, planner, compare, validate, exports</td></tr>
+      <tr><td><b>Planning study / site shortlist</b></td><td>Municipal bodies, consultants, developers</td><td>₹2–10 lakh per geography</td><td>Scenario JSON, CSV, GeoJSON, print report, encrypted export</td></tr>
+      <tr><td><b>Enterprise / API licence</b></td><td>Large operators, utilities, mobility platforms</td><td>₹10–30 lakh / year</td><td>Scenario API v1 (<a href="api.html">docs</a>)</td></tr>
+      <tr><td><b>Custom deployment & integration</b></td><td>Large organisations, public projects</td><td>Project-based</td><td>Evidence upload, VAHAN import, portfolio import/export</td></tr>
+      <tr><td><b>Monitoring & refresh</b></td><td>Existing subscribers</td><td>In higher tiers</td><td>Weekly automated rebuild + change report, portfolio recalibration</td></tr>
+    </tbody></table>
+
+    <h2>Revenue scenarios</h2>
+    <div class="win"><div class="tb"><span class="t">Calculator · illustrative arithmetic</span></div><div class="bd">
+      <div class="calc" id="rev"></div>
+      <div class="result-band" id="rev-out"></div>
+    </div></div>
+
+    <h2>Unit economics</h2>
+    <div class="win"><div class="tb"><span class="t">Calculator · ACV, gross margin, CAC payback, NRR</span></div><div class="bd">
+      <div class="calc" id="ue"></div>
+      <div class="result-band" id="ue-out"></div>
+      <p class="sub" id="ue-note"></p>
+    </div></div>
+
+    <h2>Bottom-up market sizing</h2>
+    <p>The proposal rejects inventing a TAM from an arbitrary count × an arbitrary price. This calculator only produces a figure once you enter <b>verified</b> counts of eligible organisations per segment and a validated willingness-to-pay range. Overlap between segments and procurement constraints are removed explicitly.</p>
+    <div class="win"><div class="tb"><span class="t">TAM = Σ eligible organisations × validated WTP × (1 − overlap)</span></div><div class="bd">
+      <table class="t doc-t" id="tam"></table>
+      <div class="calc" style="margin-top:8px"><label>Overlap between segments (%)<input type="number" id="tam-ov" value="10" min="0" max="90"></label><label>Share reachable through procurement (%)<input type="number" id="tam-proc" value="60" min="0" max="100"></label></div>
+      <div class="result-band" id="tam-out"></div>
+    </div></div>
+
+    <h2>Why a customer might pay</h2>
+    <ul>
+      <li>Less analyst time merging fragmented datasets and producing repeated regional reports. One methodology covers all 737 districts.</li>
+      <li>Candidate sites compared before money is spent on surveys, engineering studies or property negotiations.</li>
+      <li>A documented, reproducible rationale for proposals and budget allocation (scenario IDs, audit log, provenance).</li>
+      <li>Gaps tracked and plans updated as registrations, chargers or roads change (weekly refresh, change report).</li>
+      <li>Portfolio coverage compared across geographies with one consistent method.</li>
+    </ul>
+
+    <h2>Go-to-market</h2>
+    <ol>
+      <li>Start with a narrow pilot geography and a clearly defined buyer problem.</li>
+      <li>Run structured interviews with CPOs, fleet operators, consultants and planners to test whether site screening is a budgeted problem.</li>
+      <li>Offer a limited proof-of-value study on public data with a clear methodology. The workspace already produces one for any district.</li>
+      <li>Measure time saved, decision usefulness and willingness to pay for updates.</li>
+      <li>Convert repeat workflows into annual subscriptions; use custom consulting only where it builds reusable product.</li>
+      <li>Partner with data providers, engineering consultants and host-site networks after the core workflow is proven.</li>
+    </ol>
+    <h3>Segments</h3>
+    <p>A: CPOs and charging networks · B: fleet, logistics and mobility operators · C: real-estate and destination hosts · D: consulting, engineering and planning firms · E: government and public-sector buyers (modelled separately because of tender cycles).</p>
+
+    <h2>Implementation roadmap: status</h2>
+    <div id="phases"></div>
+
+    <h2>Scalability</h2>
+    <table class="t doc-t"><thead><tr><th>Stage</th><th>Technical evolution</th><th>Status</th></tr></thead><tbody>
+      <tr><td><b>Pilot</b></td><td>Transparent indicators, fixed source snapshots, reproducible scenarios</td><td class="state-done">Done: every district, deterministic builds</td></tr>
+      <tr><td><b>Multi-region</b></td><td>Configurable ingestion, source adapters, scheduled quality checks</td><td class="state-done">Done: 36 states/UTs, weekly refresh + tests</td></tr>
+      <tr><td><b>Network intelligence</b></td><td>Road-network routing, corridor analysis, spatial indexing</td><td class="state-part">Partial: highway-graph routing & corridors; street-level routing needs OSM roads</td></tr>
+      <tr><td><b>Enterprise platform</b></td><td>Role-based access, tenant separation, audit logs, APIs, SLAs</td><td class="state-part">Partial: roles, hash-chained audit, API in-browser; multi-tenant server not built</td></tr>
+      <tr><td><b>National decision support</b></td><td>Multi-source governance, uncertainty tracking, regional calibration</td><td class="state-part">Partial: provenance, confidence, portfolio recalibration</td></tr>
+    </tbody></table>
+    <h3>Engineering principles in the code</h3>
+    <ul>
+      <li>Ingestion adapters (<span class="mono">pipeline/</span>) are separate from the analytical engine (<span class="mono">js/engine.js</span>, <span class="mono">js/advanced.js</span>).</li>
+      <li>Spatial grid indexes, and precomputed demand cells and coverage, are stored per build.</li>
+      <li>Source facts, derived features, assumptions and scenario outputs are kept separate. Scenario IDs hash every input.</li>
+      <li>Heavy jobs (ILP, sensitivity, backtest) run asynchronously in a Web Worker; the API returns stored results.</li>
+    </ul>
+
+    <h2>Risks</h2>
+    <table class="t doc-t"><thead><tr><th>Risk</th><th>Mitigation in the product</th></tr></thead><tbody>
+      <tr><td>Incomplete or stale charger locations</td><td>8-source merge, ≥2-source flag, official cross-check, live OSM comparison, weekly refresh</td></tr>
+      <tr><td>Incompatible reporting definitions</td><td>Official counts compared side by side, never merged</td></tr>
+      <tr><td>Road graph errors</td><td>Distance metric labelled; straight × detour fallback; sensitivity on detour</td></tr>
+      <tr><td>Weak demand proxy</td><td>Holdout backtest: proxy beats random 1.3–3× in tested regions; VAHAN upload replaces it</td></tr>
+      <tr><td>Grid and land feasibility unknown</td><td>Feasibility marked unknown; evidence upload; human review before spend</td></tr>
+      <tr><td>Unproven willingness to pay</td><td>Pricing kept as hypotheses; calculators require validated inputs</td></tr>
+      <tr><td>Overfitting to one geography</td><td>Same method on all 737 districts; backtests per region</td></tr>
+      <tr><td>Opaque or biased scoring</td><td>Component bars, equity metrics, sensitivity, exportable assumptions</td></tr>
+    </tbody></table>
+
+    <h2>Assumptions register</h2>
+    <table class="t doc-t"><thead><tr><th>Assumption</th><th>Status</th><th>Evidence so far</th></tr></thead><tbody>
+      <tr><td>A pilot geography can be selected with usable public data</td><td class="state-done">Met</td><td>Public data assembled for every district, with licences recorded</td></tr>
+      <tr><td>Distance-based coverage is useful for initial screening</td><td class="state-part">Method hypothesis</td><td>Straight vs highway-network metrics both available; sensitivity reported</td></tr>
+      <tr><td>Marginal gain improves on score-only ranking</td><td class="state-done">Supported in tests</td><td>Greedy beats score-only coverage at equal budget (e.g. East Singhbhum 86% vs 73%); ILP confirms near-optimality</td></tr>
+      <tr><td>Organisations may pay for repeatable site planning</td><td class="state-next">Untested</td><td>Requires buyer interviews and a paid pilot</td></tr>
+      <tr><td>Illustrative subscription prices are feasible</td><td class="state-next">Untested</td><td>Pricing hypothesis only</td></tr>
+      <tr><td>National scale is technically achievable</td><td class="state-done">Demonstrated technically</td><td>All 36 states/UTs; the largest state analyses in under 0.5 s in a browser</td></tr>
+    </tbody></table>
+  </main>
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const inr = (n) => n >= 1e7 ? "₹" + (n / 1e7).toFixed(2) + " cr" : n >= 1e5 ? "₹" + (n / 1e5).toFixed(1) + " L" : "₹" + Math.round(n).toLocaleString("en-IN");
+    function fields(el, defs, on) { el.innerHTML = defs.map(([k, label, v, step]) => `<label>${label}<input type="number" id="${k}" value="${v}" step="${step || 1}" min="0"></label>`).join(""); defs.forEach(([k]) => $("#" + k).addEventListener("input", on)); on(); }
+    const band = (el, items) => el.innerHTML = items.map(([b, s]) => `<div><b>${b}</b><span>${s}</span></div>`).join("");
+
+    fields($("#rev"), [["r1c", "Early validation: customers", 5], ["r1p", "price ₹ lakh/yr", 3, 0.5], ["r2c", "Regional expansion: customers", 20], ["r2p", "price ₹ lakh/yr", 6, 0.5], ["r3c", "Multi-region scale: customers", 50], ["r3p", "price ₹ lakh/yr", 8, 0.5]], () => {
+      const v = (k) => +$("#" + k).value || 0;
+      band($("#rev-out"), [[inr(v("r1c") * v("r1p") * 1e5), "early validation"], [inr(v("r2c") * v("r2p") * 1e5), "regional expansion"], [inr(v("r3c") * v("r3p") * 1e5), "multi-region scale"]]);
+    });
+
+    fields($("#ue"), [["acv", "Annual contract value ₹ lakh", 6, 0.5], ["dc", "Direct delivery cost ₹ lakh / customer / yr", 1.5, 0.1], ["cac", "Customer acquisition cost ₹ lakh", 4, 0.5], ["ret", "Renewal rate %", 80], ["exp", "Expansion from renewals %", 10]], () => {
+      const v = (k) => +$("#" + k).value || 0;
+      const gm = v("acv") ? (v("acv") - v("dc")) / v("acv") : 0, gpm = (v("acv") - v("dc")) / 12;
+      const payback = gpm > 0 ? v("cac") / gpm : Infinity, nrr = (v("ret") / 100) * (1 + v("exp") / 100);
+      const ltv = gpm > 0 && v("ret") < 100 ? (gpm * 12) / (1 - v("ret") / 100) : null;
+      band($("#ue-out"), [[(gm * 100).toFixed(0) + "%", "gross margin"], [isFinite(payback) ? payback.toFixed(1) + " mo" : "never", "CAC payback"], [(nrr * 100).toFixed(0) + "%", "net revenue retention"], [ltv ? inr(ltv * 1e5) : "—", "gross-margin LTV"], [ltv ? (ltv / v("cac")).toFixed(1) + "×" : "—", "LTV / CAC"]]);
+      $("#ue-note").textContent = "Measure these only after real sales and delivery costs exist. A credible investment case uses measured pilot unit economics, not a theoretical market.";
+    });
+
+    const SEG = [["A", "CPOs & charging networks"], ["B", "Fleet, logistics & mobility"], ["C", "Real-estate & destination hosts"], ["D", "Consulting, engineering & planning"], ["E", "Government & public sector"]];
+    $("#tam").innerHTML = `<thead><tr><th>Segment</th><th>Verified eligible organisations</th><th>Validated WTP ₹ lakh/yr (low)</th><th>(high)</th><th>Source of count</th></tr></thead><tbody>${SEG.map(([k, n]) => `<tr><td><b>${k}</b> ${n}</td><td><input type="number" min="0" data-t="${k}n" placeholder="enter count"></td><td><input type="number" min="0" step="0.5" data-t="${k}l" placeholder="₹ L"></td><td><input type="number" min="0" step="0.5" data-t="${k}h" placeholder="₹ L"></td><td><input type="text" data-t="${k}s" placeholder="e.g. MoP CPO list 2026"></td></tr>`).join("")}</tbody>`;
+    const tam = () => {
+      const g = (k) => +(document.querySelector(`[data-t="${k}"]`).value) || 0;
+      let lo = 0, hi = 0, filled = 0, unsourced = 0;
+      for (const [k] of SEG) { const n = g(k + "n"); if (n) { filled++; lo += n * g(k + "l"); hi += n * (g(k + "h") || g(k + "l")); if (!document.querySelector(`[data-t="${k}s"]`).value.trim()) unsourced++; } }
+      const f = (1 - (+$("#tam-ov").value || 0) / 100) * ((+$("#tam-proc").value || 0) / 100);
+      band($("#tam-out"), filled ? [[inr(lo * f * 1e5) + " – " + inr(hi * f * 1e5), "serviceable market / yr"], [filled + " / 5", "segments with verified counts"], [unsourced ? unsourced + " unsourced" : "all sourced", "count provenance"]] : [["—", "enter verified counts to compute"], ["0 / 5", "segments filled"], ["no claim", "the proposal makes no TAM claim yet"]]);
+    };
+    document.querySelectorAll("[data-t], #tam-ov, #tam-proc").forEach(i => i.addEventListener("input", tam)); tam();
+
+    const PH = [
+      ["Phase 0", "Scoping", "Geography, objective, licence and source rules", "done", "All India; source register with licences and checksums"],
+      ["Phase 1", "Data pipeline", "Chargers, demand, boundaries, roads; validated geometry", "done", "Deterministic build, quality report, weekly refresh"],
+      ["Phase 2", "Baseline engine", "Nearest access, coverage thresholds, pressure, confidence", "done", "Straight and highway-network metrics"],
+      ["Phase 3", "Candidate generation", "Candidate zones/hosts with component scores", "done", "Towns, highway, hotspots, evidence sites"],
+      ["Phase 4", "Optimiser", "Greedy marginal gain vs baselines", "done", "Plus local search, exact ILP, budget curve"],
+      ["Phase 5", "User interface", "Map, filters, metrics, ledger, scenario controls", "done", "Full-screen workspace, API, docs"],
+      ["Phase 6", "Validation", "Unit tests, sensitivity, quality review, feedback", "part", "23 automated tests, backtest, sensitivity; stakeholder feedback pending"],
+      ["Phase 7", "Commercial pilot", "Demonstrate to a planning or operator partner", "next", "Needs a partner. Proof-of-value studies are ready to export"],
+      ["Phase 8", "Scale", "Automated refresh, more regions, governance, monitoring", "part", "Refresh + all regions done; server-side governance pending"],
+    ];
+    $("#phases").innerHTML = PH.map(([p, n, d, s, note]) => `<div class="phase"><b>${p}</b><div><b style="font-family:var(--sans);font-size:15px">${n}</b><br>${d}<br><span class="sub">${note}</span></div><div class="${s === "done" ? "state-done" : s === "part" ? "state-part" : "state-next"}">${s === "done" ? "● Built" : s === "part" ? "◐ Partly" : "○ Next"}</div></div>`).join("");
+  </script>
+</body>
+</html>
