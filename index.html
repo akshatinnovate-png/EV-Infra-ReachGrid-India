@@ -63,13 +63,44 @@
     <div class="vstring" id="vstring" aria-hidden="true"></div>
   </header>
 
-  <section class="desk-wrap" id="atlas" aria-label="Atlas">
-    <div class="desk-head"><span>RG.OS1 · India → State → District</span><span id="desk-meta"></span></div>
+  <section class="launch" id="atlas-launch" aria-label="Launch workspace">
+    <div class="win launchwin">
+      <div class="tb"><span class="t">RG.OS1 · Planning workspace</span></div>
+      <div class="bd">
+        <div class="launch-grid">
+          <div>
+            <h2>Open the full-screen workspace.</h2>
+            <p>India → state → district drill-down, budget optimiser, corridor checks, confidence ledger and exports, laid out for real work: docked panels, keyboard shortcuts and full screen.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap"><a class="btn" href="?app=1" data-go="atlas">Launch workspace ↗</a><a class="btn ghost" href="?app=1&amp;mode=corridor" data-go="corridor">Corridor check</a></div>
+          </div>
+          <ul class="kbd-list">
+            <li><kbd>F</kbd> full screen</li><li><kbd>/</kbd> search anywhere</li><li><kbd>Esc</kbd> up one level</li>
+            <li><kbd>[</kbd> <kbd>]</kbd> toggle side panels</li><li><kbd>A</kbd> assistant</li><li><kbd>1</kbd>–<kbd>5</kbd> inspector tabs</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="desk-wrap" id="atlas" aria-label="ReachGrid workspace">
     <div class="desk">
-      <div class="blob a"></div><div class="blob b"></div>
-      <div class="label">RG.OS1</div>
-      <div class="crumbs" id="crumbs"></div>
-      <div id="map" role="application" aria-label="Map of India"></div>
+      <header class="appbar" role="toolbar" aria-label="Workspace toolbar">
+        <a class="ab-brand" href="./" id="ab-exit" title="Back to site">⚡ ReachGrid <span>India</span></a>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="ab-search" id="ab-search"></div>
+        <div class="seg ab-mode"><button id="ab-atlas" aria-pressed="true">Atlas</button><button id="ab-corr" aria-pressed="false">Corridor</button></div>
+        <div class="ab-tools">
+          <button class="ab-btn" id="ab-left" title="Toggle navigator  [" aria-pressed="true">☰</button>
+          <button class="ab-btn" id="ab-right" title="Toggle inspector  ]" aria-pressed="true">▤</button>
+          <button class="ab-btn" id="ab-ask" title="Assistant  A" aria-pressed="true">✦</button>
+          <button class="ab-btn" id="ab-theme" title="Light / dark">◐</button>
+          <button class="ab-btn" id="ab-help" title="Shortcuts  ?">?</button>
+          <button class="ab-btn" id="ab-fs" title="Full screen  F">⛶</button>
+        </div>
+      </header>
+      <div id="map" role="application" aria-label="Map"></div>
+      <div class="resizer" id="rz-left" title="Drag to resize"></div>
+      <div class="resizer" id="rz-right" title="Drag to resize"></div>
       <div class="desk-order">
         <section class="win fw" id="w-nav" aria-label="Navigator">
           <div class="tb"><span class="t" id="nav-title">Navigator</span><button data-min aria-label="Minimise">_</button></div>
@@ -88,10 +119,18 @@
           <div class="tb"><span class="t">Ask ReachGrid</span><button data-min aria-label="Minimise">_</button></div>
           <div class="bd" id="ask-body"></div>
         </section>
-        <section class="win fw" id="w-clock" aria-label="Status">
-          <div class="tb"><span class="t">Clock Tool 1.1</span><button data-min aria-label="Minimise">_</button></div>
-          <div class="bd mono" id="clock-body"></div>
-        </section>
+      </div>
+      <footer class="statusbar" id="statusbar" aria-live="off">
+        <span id="sb-scope">India</span><span id="sb-metric"></span><span id="sb-cursor">—</span><span class="grow"></span><span id="sb-build"></span><span id="sb-net"></span><span id="sb-clock"></span>
+      </footer>
+      <div class="help" id="help" hidden>
+        <div class="win"><div class="tb"><span class="t">Keyboard shortcuts</span><button id="help-x" aria-label="Close">×</button></div>
+          <div class="bd"><table class="t"><tbody>
+            <tr><td><kbd>F</kbd></td><td>Full screen on / off</td></tr><tr><td><kbd>/</kbd></td><td>Search states, districts, towns</td></tr>
+            <tr><td><kbd>Esc</kbd></td><td>Up one level (district → state → India)</td></tr><tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Hide or show navigator / inspector</td></tr>
+            <tr><td><kbd>A</kbd></td><td>Assistant</td></tr><tr><td><kbd>L</kbd></td><td>Legend &amp; layers</td></tr>
+            <tr><td><kbd>1</kbd>–<kbd>5</kbd></td><td>Overview · Plan · Sensitivity · Chargers · Ledger</td></tr><tr><td><kbd>C</kbd></td><td>Corridor mode</td></tr>
+            <tr><td><kbd>?</kbd></td><td>This help</td></tr></tbody></table></div></div>
       </div>
     </div>
   </section>

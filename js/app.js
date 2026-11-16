@@ -73,12 +73,14 @@
       INDIA.districtById = new Map(INDIA.districts.map(d => [d.id, d]));
       INDIA.stateById = new Map(INDIA.states.map(s => [s.id, s]));
       INDIA.states.sort((a, b) => a.name.localeCompare(b.name));
-      initStatic(); initMap(); initWindows(); initAsk(); initClock();
-      const r = new URLSearchParams(location.search).get("r");
+      initStatic(); initMap(); initWindows(); initAsk(); initClock(); initWorkspace();
+      const qs = new URLSearchParams(location.search), r = qs.get("r");
+      if (r || qs.has("app") || qs.get("mode") === "corridor") enterApp(qs.get("mode") === "corridor" ? "corridor" : null, true);
       setBoot(1, "Ready");
       setTimeout(() => $("#boot").classList.add("done"), 250);
       if (r) { const [sid, ds] = r.split("/"); if (INDIA.stateById.has(sid)) { await goState(sid, { instant: true }); if (ds) await goDistrict(`${sid}.${ds}`, { instant: true }); } else goIndia(); }
       else goIndia({ instant: true });
+      setTimeout(() => map.invalidateSize(), 50);
     } catch (e) {
       bootStep.textContent = "Failed: " + e.message + ". Serve the folder over http (see README).";
       console.error(e);
@@ -91,7 +93,6 @@
     $("#news1-t").textContent = `${ch.observed.replace("compiled ", "")} • Data build ${INDIA.version}`;
     $("#news1-b").textContent = `${nIN(T.chargers)} real charging stations · ${INDIA.states.length} states & UTs · ${nIN(INDIA.districts.length)} districts`;
     $("#vstring").textContent = (ch.sha256 + INDIA.sources.map(s => s.sha256 || "").join("")).slice(0, 180).toUpperCase();
-    $("#desk-meta").textContent = `build ${INDIA.version} · ${INDIA.built}`;
     $("#statband").innerHTML = [
       [nIN(T.chargers), "public charging sites mapped"],
       [pct(T.coverage["10"], 0), "of Indians within 10 km (straight line)"],
@@ -104,7 +105,7 @@
       <div class="hdr">Pipeline quality report</div>
       <div class="kpis">${[["Chargers assigned inside a district", q.assigned_inside], ["Assigned to nearest district (coastal / edge)", q.assigned_nearest], ["Dropped: outside India boundaries", q.outside_boundaries || 0], ["Source state label disagreed with location", q.source_state_label_differs], ["Districts with census apportioned (imputed)", INDIA.totals.imputed_districts], ["Population reconciled to Census 2011", pct(INDIA.totals.pop / 1210854977, 2)]].map(([l, v]) => `<div class="kpi"><b>${typeof v === "number" ? nIN(v) : v}</b><span>${l}</span></div>`).join("")}</div>
       <p class="sub" style="margin-top:10px">Rules: a mapped point is never assumed operational; aggregate counts with different definitions are not combined; missing data is never treated as zero. Rebuild everything with <span class="mono">bash pipeline/fetch_sources.sh && python3 pipeline/build.py</span>.</p>`;
-    $$("[data-go]").forEach(a => a.addEventListener("click", () => { if (a.dataset.go === "corridor") { S.mode = "corridor"; goIndia(); } else if (S.mode === "corridor") { S.mode = "atlas"; render(); } }));
+    $$("[data-go]").forEach(a => a.addEventListener("click", (e) => { e.preventDefault(); enterApp(a.dataset.go === "corridor" ? "corridor" : "atlas"); }));
     $("#theme-toggle").addEventListener("click", () => {
       const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
       document.documentElement.dataset.theme = cur === "dark" ? "light" : "dark"; store.set("theme", document.documentElement.dataset.theme);
@@ -293,6 +294,8 @@
   function setURL() {
     const u = new URL(location.href);
     if (S.level === "india") u.searchParams.delete("r"); else u.searchParams.set("r", S.sid + (S.did ? "/" + S.did.split(".")[1] : ""));
+    if (document.body.classList.contains("app-mode")) u.searchParams.set("app", "1");
+    if (S.mode === "corridor") u.searchParams.set("mode", "corridor"); else u.searchParams.delete("mode");
     history.replaceState(null, "", u);
   }
   function curState() { return S.sid ? window.RG_STATE?.[S.sid] : null; }
@@ -312,7 +315,7 @@
     if (!["overview", "plan", "chargers", "ledger"].includes(S.tab)) S.tab = "overview";
     if (S.tab === "plan") S.tab = "overview";
     drawState(sd);
-    map.flyToBounds(L.geoJSON(INDIA.stateById.get(sid).geom).getBounds(), { padding: [30, 30], duration: o.instant ? 0 : 0.9, paddingTopLeft: [innerWidth > 1100 ? 360 : 10, 40], paddingBottomRight: [innerWidth > 1100 ? 440 : 10, 20] });
+    map.flyToBounds(L.geoJSON(INDIA.stateById.get(sid).geom).getBounds(), { duration: o.instant ? 0 : 0.9, ...mapPad() });
     render(); setURL();
   }
   async function goDistrict(did, o = {}) {
@@ -322,7 +325,7 @@
     const d = curDistrict(); if (!d) return;
     runAnalysis(false);
     drawDistrict(curState(), d); drawPlan(false);
-    map.flyToBounds(L.geoJSON(d.geom).getBounds(), { duration: o.instant ? 0 : 0.9, paddingTopLeft: [innerWidth > 1100 ? 360 : 10, 40], paddingBottomRight: [innerWidth > 1100 ? 440 : 10, 20] });
+    map.flyToBounds(L.geoJSON(d.geom).getBounds(), { duration: o.instant ? 0 : 0.9, ...mapPad() });
     render(); setURL();
   }
 
@@ -345,7 +348,7 @@
   const rerun = debounce(() => {
     store.set("opts", S.opts);
     runAnalysis(); drawPlan(true); if (S.level === "district") drawChargersDetail(curDistrict());
-    renderInspector();
+    renderInspector(); updateStatus();
   }, 220);
 
   /* ------------------------------------------------------------------ windows */
@@ -356,7 +359,7 @@
       $("[data-min]", w).addEventListener("click", (e) => { e.stopPropagation(); w.classList.toggle("min"); });
       const tb = $(".tb", w);
       tb.addEventListener("pointerdown", (e) => {
-        if (innerWidth <= 1100 || e.target.closest("button")) return;
+        if (innerWidth <= 1100 || e.target.closest("button") || document.body.classList.contains("app-mode")) return;
         const desk = w.parentElement.parentElement.getBoundingClientRect(), r = w.getBoundingClientRect();
         const ox = e.clientX - r.left, oy = e.clientY - r.top; w.classList.add("drag"); tb.setPointerCapture(e.pointerId);
         const mv = (ev) => { w.style.left = Math.max(0, Math.min(desk.width - 80, ev.clientX - desk.left - ox)) + "px"; w.style.top = Math.max(0, Math.min(desk.height - 30, ev.clientY - desk.top - oy)) + "px"; w.style.right = "auto"; w.style.bottom = "auto"; };
@@ -397,7 +400,7 @@
           res.innerHTML = items.map((x, i) => `<button data-i="${i}" class="${i ? "" : "on"}"><span>${esc(x.label)}</span><small>${esc(x.sub)}</small></button>`).join("") || `<button disabled><span>No match</span></button>`;
           res.hidden = false;
         };
-        const pick = (i) => { const x = items[i]; if (!x) return; res.hidden = true; inp.value = x.label; onPick ? onPick(x) : x.go(); };
+        const pick = (i) => { const x = items[i]; if (!x) return; res.hidden = true; inp.value = x.label; if (!onPick) { inp.blur(); setTimeout(() => { inp.value = ""; }, 400); } onPick ? onPick(x) : x.go(); };
         inp.addEventListener("input", show);
         inp.addEventListener("keydown", e => { if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); on = (on + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length; $$("button", res).forEach((b, i) => b.classList.toggle("on", i === on)); } if (e.key === "Enter") pick(on); if (e.key === "Escape") res.hidden = true; });
         res.addEventListener("click", e => { const b = e.target.closest("button[data-i]"); if (b) pick(+b.dataset.i); });
@@ -417,27 +420,24 @@
   }
 
   function renderNav() {
-    const body = $("#nav-body"), sb = searchBox("q", "Search state, district or town…");
+    const body = $("#nav-body");
     if (S.mode === "corridor") return renderCorridorNav(body);
     if (S.level === "india") {
       $("#nav-title").textContent = "Navigator · India";
       const rows = sortedByMetric(S.unit === "states" ? INDIA.states : INDIA.districts.filter(d => d.stats.pop > 0)).map(r => ({ ...r, name: r.sid ? `${r.name} (${INDIA.stateById.get(r.sid).name.slice(0, 14)})` : r.name }));
-      body.innerHTML = `${sb.html}
-        <div class="hdr" style="margin-top:10px"><span>Mode</span><span class="seg"><button aria-pressed="true">Atlas</button><button id="to-corr" aria-pressed="false">Corridor</button></span></div>
+      body.innerHTML = `
         <div class="hdr"><span>Show</span><span class="seg"><button data-unit="states" aria-pressed="${S.unit === "states"}">States</button><button data-unit="districts" aria-pressed="${S.unit === "districts"}">Districts</button></span></div>
         ${metricControls()}
         <div class="hdr"><span>Ranked: needs attention first</span><span class="sub">${rows.length}</span></div>
         ${rankTable(rows, METRICS[S.metric])}
         <p class="sub">Click any ${S.unit === "states" ? "state on the map to pop it out" : "district to open it"}.</p>`;
       $$("[data-unit]", body).forEach(b => b.onclick = () => { S.unit = b.dataset.unit; drawIndia(); render(); });
-      $("#to-corr").onclick = () => { S.mode = "corridor"; drawIndia(); render(); };
       $$("tr[data-id]", body).forEach(tr => tr.onclick = () => S.unit === "states" ? goState(tr.dataset.id) : goDistrict(tr.dataset.id));
     } else {
       const sd = curState(), st = INDIA.stateById.get(S.sid);
       $("#nav-title").textContent = `Navigator · ${st.name}`;
       const rows = sortedByMetric(sd.districts.map(d => ({ id: d.id, name: d.name, stats: statOf(d.id) })));
-      body.innerHTML = `${sb.html}
-        <div style="margin:8px 0"><button class="btn sm ghost" id="back-india">← India</button> ${S.level === "district" ? `<button class="btn sm ghost" id="back-state">← ${esc(st.name)}</button>` : ""}</div>
+      body.innerHTML = `<div style="margin:0 0 8px"><button class="btn sm ghost" id="back-india">← India</button> ${S.level === "district" ? `<button class="btn sm ghost" id="back-state">← ${esc(st.name)}</button>` : ""}</div>
         ${metricControls()}
         <div class="hdr"><span>Districts: needs attention first</span><span class="sub">${rows.length}</span></div>
         ${rankTable(rows, METRICS[S.metric])}`;
@@ -445,7 +445,6 @@
       if ($("#back-state")) $("#back-state").onclick = () => goState(S.sid);
       $$("tr[data-id]", body).forEach(tr => { if (tr.dataset.id === S.did) tr.style.background = "var(--paper)"; tr.onclick = () => goDistrict(tr.dataset.id); });
     }
-    sb.bind();
     $("#metric").onchange = (e) => { S.metric = e.target.value; if (S.level === "india") drawIndia(); else if (S.level === "state") drawState(curState()); renderNav(); renderLegend(); };
   }
 
@@ -468,7 +467,7 @@
     const tb = $("#tabbody");
     if ((S.tab === "plan" || S.tab === "sens") && !S.analysis) {
       tb.innerHTML = `<p class="sub">Building demand cells, candidate sites and plans for ${esc(name)}…</p>`;
-      setTimeout(() => { runAnalysis(); drawPlan(true); if (S.level === "state") drawCells(); renderInspector(); }, 30);
+      setTimeout(() => { runAnalysis(); drawPlan(true); if (S.level === "state") drawCells(); renderInspector(); updateStatus(); }, 30);
       return;
     }
     ({ overview: tabOverview, plan: tabPlan, sens: tabSens, chargers: tabChargers, ledger: tabLedger }[S.tab] || tabOverview)(tb, name);
@@ -729,7 +728,7 @@
   function renderCorridorNav(body) {
     $("#nav-title").textContent = "Corridor check · highway network";
     const C = S.corridor, sa = searchBox("cf", "From town…", x => { C.from = x.p; }, placeSource), sb2 = searchBox("ct", "To town…", x => { C.to = x.p; }, placeSource);
-    body.innerHTML = `<div class="hdr" style="margin-top:0"><span>Mode</span><span class="seg"><button id="to-atlas" aria-pressed="false">Atlas</button><button aria-pressed="true">Corridor</button></span></div>
+    body.innerHTML = `
       <label class="f">From${sa.html}</label><label class="f">To${sb2.html}</label>
       <div class="grid2"><label class="f">EV real-world range<select id="crange">${[120, 180, 250, 320, 400, 500].map(r => `<option ${r === C.range ? "selected" : ""} value="${r}">${r} km</option>`).join("")}</select></label>
       <label class="f">Arrival reserve<select id="cres">${[10, 20, 30].map(r => `<option ${r === C.reserve ? "selected" : ""} value="${r}">${r}%</option>`).join("")}</select></label>
@@ -741,7 +740,6 @@
       <p class="sub">Routes on the Natural Earth highway graph (${nIN(ROADS.nodes.length)} nodes). Coarse: good for gap screening, not navigation.</p>`;
     sa.bind(); sb2.bind();
     if (C.from) $("#cf").value = C.from[0]; if (C.to) $("#ct").value = C.to[0];
-    $("#to-atlas").onclick = () => { S.mode = "atlas"; S.route = null; clearLayers("route"); drawIndia(); render(); };
     $("#crange").onchange = e => C.range = +e.target.value; $("#cres").onchange = e => C.reserve = +e.target.value; $("#cbuf").onchange = e => C.buffer = +e.target.value; $("#cdc2").onchange = e => C.dcOnly = e.target.checked;
     $("#croute").onclick = () => runCorridor();
     $$("[data-pre]", body).forEach(b => b.onclick = () => { const [a, z] = PRESETS[+b.dataset.pre]; C.from = findPlace(a); C.to = findPlace(z); $("#cf").value = C.from?.[0] || a; $("#ct").value = C.to?.[0] || z; runCorridor(); });
@@ -755,7 +753,7 @@
     const idx = Rg.chargerIndex(INDIA, C.dcOnly ? "dc" : "all");
     const g = E.corridorGaps(r.path, idx, { bufferKm: C.buffer, rangeKm: C.range, reservePct: C.reserve });
     S.route = { r, g, idx, from: C.from, to: C.to, opts: { ...C } };
-    drawRoute(); renderInspector();
+    drawRoute(); renderInspector(); updateStatus();
   }
   function drawRoute() {
     clearLayers("route");
@@ -770,7 +768,7 @@
     g.stops.forEach(s => { const p = idx.pts[s.i]; L.marker([p.lat, p.lng], { icon: L.divIcon({ className: "", html: `<div class="charger-sq ${p.dc ? "" : "ac"}"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }) }).bindTooltip(`km ${s.at.toFixed(0)} · ${s.off.toFixed(1)} km off route${p.dc ? " · DC" : ""}${p.verified ? " · ≥2 sources" : ""}`, { className: "rg-tip" }).addTo(G.route); });
     g.plan.forEach((s, i) => { const p = idx.pts[s.i]; L.marker([p.lat, p.lng], { zIndexOffset: 1000, icon: L.divIcon({ className: "", html: `<div class="sel-pin pop">${i + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(G.route); });
     [[S.route.from, "A"], [S.route.to, "B"]].forEach(([p, t]) => L.marker([p[2], p[1]], { icon: L.divIcon({ className: "", html: `<div class="sel-pin" style="background:#1b1b1d">${t}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(G.route));
-    map.flyToBounds(L.latLngBounds(line), { paddingTopLeft: [innerWidth > 1100 ? 360 : 10, 40], paddingBottomRight: [innerWidth > 1100 ? 440 : 10, 20], duration: 0.8 });
+    map.flyToBounds(L.latLngBounds(line), { ...mapPad(), duration: 0.8 });
   }
   function renderCorridorInsp(el) {
     $("#insp-title").textContent = "Corridor report";
@@ -821,14 +819,119 @@
 
   /* ------------------------------------------------------------------ clock */
   function initClock() {
-    const el = $("#clock-body");
+    $("#sb-build").innerHTML = `build <b>${esc(INDIA.version)}</b> · chargers ${esc(INDIA.sources[0].observed.replace("compiled ", ""))}`;
     const tick = () => {
       const now = new Date();
-      el.innerHTML = `<div>${now.toLocaleDateString("en-IN", { weekday: "long", month: "short", day: "numeric", year: "numeric", timeZone: "Asia/Kolkata" })}</div>
-        <div style="font-size:22px;margin:2px 0">${now.toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })} <span style="font-size:11px">IST</span></div>
-        <div class="sub">data build ${esc(INDIA.version)}<br>chargers compiled ${esc(INDIA.sources[0].observed.replace("compiled ", ""))}<br>${navigator.onLine ? "online: live OSM check available" : "offline: bundled snapshot"}</div>`;
+      $("#sb-clock").innerHTML = `<b>${now.toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}</b> IST · ${now.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })}`;
+      $("#sb-net").textContent = navigator.onLine ? "● online" : "○ offline (bundled data)";
     };
     tick(); setInterval(tick, 1000);
+  }
+  function updateStatus() {
+    const sc = $("#sb-scope"), mt = $("#sb-metric"); if (!sc) return;
+    const st = S.did ? statOf(S.did) : S.sid ? INDIA.stateById.get(S.sid).stats : INDIA.totals;
+    sc.innerHTML = `<b>${esc(scopeName())}</b> · ${people(st.pop)} people · ${nIN(st.chargers)} chargers`;
+    const A = S.analysis;
+    mt.innerHTML = S.mode === "corridor" ? (S.route && S.route.g ? `corridor <b>${S.route.g.total.toFixed(0)} km</b> · longest gap <b>${S.route.g.maxGap.toFixed(0)} km</b>` : "corridor mode")
+      : A && S.level !== "india" ? `τ ${S.opts.tauKm} km · baseline <b>${pct(A.ctx.base.coverage)}</b> → plan <b>${pct(A.plans[S.planKey].metrics.coverage)}</b>`
+      : `within 10 km <b>${pct(st.coverage["10"], 0)}</b> · mean <b>${km(st.mean_dist)}</b>`;
+  }
+
+  /* ------------------------------------------------------------------ workspace (app mode) */
+  const isApp = () => document.body.classList.contains("app-mode");
+  function mapPad() {
+    if (isApp() || innerWidth <= 1100) return { paddingTopLeft: [24, 24], paddingBottomRight: [24, 24] };
+    return { paddingTopLeft: [360, 40], paddingBottomRight: [440, 20] };
+  }
+  const refit = debounce(() => map && map.invalidateSize({ pan: false }), 60);
+  function enterApp(mode, fromBoot) {
+    document.body.classList.add("app-mode");
+    map.invalidateSize({ pan: false });
+    if (mode === "corridor" && S.mode !== "corridor") { S.mode = "corridor"; if (!fromBoot) goIndia(); }
+    else if (mode === "atlas" && S.mode === "corridor") { S.mode = "atlas"; S.route = null; clearLayers("route"); if (!fromBoot) goIndia(); }
+    setTimeout(() => { map.invalidateSize(); if (!fromBoot && S.level === "india") map.fitBounds([[6.5, 68], [35.7, 97.4]]); }, 30);
+    setURL();
+  }
+  function setPanel(cls, on) { document.body.classList.toggle(cls, !on); store.set("ws_" + cls, !on); refit(); syncToolbar(); }
+  function syncToolbar() {
+    $("#ab-left").setAttribute("aria-pressed", !document.body.classList.contains("no-left"));
+    $("#ab-right").setAttribute("aria-pressed", !document.body.classList.contains("no-right"));
+    $("#ab-ask").setAttribute("aria-pressed", !document.body.classList.contains("no-ask"));
+    $("#ab-atlas").setAttribute("aria-pressed", S.mode !== "corridor");
+    $("#ab-corr").setAttribute("aria-pressed", S.mode === "corridor");
+    $("#ab-fs").textContent = document.fullscreenElement ? "🗗" : "⛶";
+  }
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) (document.documentElement.requestFullscreen?.() || Promise.resolve()).catch(() => { });
+    else document.exitFullscreen?.();
+  }
+  function setMode(m) {
+    if (m === S.mode) return;
+    S.mode = m;
+    if (m === "atlas") { S.route = null; clearLayers("route"); }
+    if (m === "corridor" && document.body.classList.contains("no-left")) setPanel("no-left", true);
+    goIndia();
+  }
+  function initWorkspace() {
+    const b = document.body;
+    const narrow = matchMedia("(max-width: 900px)").matches;
+    ["no-left", "no-right", "no-ask", "no-legend"].forEach(c => { if (store.get("ws_" + c, narrow && c === "no-ask")) b.classList.add(c); });
+    if (narrow) $("#w-legend").classList.add("min");
+    const w = store.get("ws_widths", null); if (w) { b.style.setProperty("--nav-w", w.nav + "px"); b.style.setProperty("--insp-w", w.insp + "px"); }
+    const gs = searchBox("q", "Search any state, district or town…  ( / )");
+    $("#ab-search").innerHTML = gs.html; gs.bind();
+    $("#ab-left").onclick = () => setPanel("no-left", b.classList.contains("no-left"));
+    $("#ab-right").onclick = () => setPanel("no-right", b.classList.contains("no-right"));
+    $("#ab-ask").onclick = () => setPanel("no-ask", b.classList.contains("no-ask"));
+    $("#ab-fs").onclick = toggleFullscreen;
+    $("#ab-atlas").onclick = () => setMode("atlas");
+    $("#ab-corr").onclick = () => setMode("corridor");
+    $("#ab-theme").onclick = () => $("#theme-toggle").click();
+    $("#ab-help").onclick = () => { $("#help").hidden = !$("#help").hidden; };
+    $("#help-x").onclick = () => { $("#help").hidden = true; };
+    $("#help").addEventListener("click", e => { if (e.target.id === "help") $("#help").hidden = true; });
+    document.addEventListener("fullscreenchange", () => { syncToolbar(); refit(); });
+    addEventListener("resize", refit);
+    // resizable side panels
+    [["#rz-left", "--nav-w", 1, 220, 560], ["#rz-right", "--insp-w", -1, 300, 760]].forEach(([sel, v, dir, min, max]) => {
+      const el = $(sel);
+      el.addEventListener("pointerdown", e => {
+        e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add("drag");
+        const x0 = e.clientX, w0 = parseFloat(getComputedStyle(b).getPropertyValue(v)) || (dir > 0 ? 320 : 430);
+        const mv = ev => { b.style.setProperty(v, Math.max(min, Math.min(max, w0 + dir * (ev.clientX - x0))) + "px"); refit(); };
+        const up = () => {
+          el.classList.remove("drag"); el.removeEventListener("pointermove", mv); el.removeEventListener("pointerup", up);
+          const cs = getComputedStyle(b); store.set("ws_widths", { nav: parseFloat(cs.getPropertyValue("--nav-w")) || 320, insp: parseFloat(cs.getPropertyValue("--insp-w")) || 430 });
+        };
+        el.addEventListener("pointermove", mv); el.addEventListener("pointerup", up);
+      });
+      el.addEventListener("dblclick", () => { b.style.removeProperty(v); store.set("ws_widths", null); refit(); });
+    });
+    // keyboard shortcuts (ignored while typing)
+    document.addEventListener("keydown", e => {
+      if (!isApp() || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target, typing = t.matches && t.matches("input, textarea, select, [contenteditable]");
+      if (typing) { if (e.key === "Escape") t.blur(); return; }
+      const k = e.key;
+      if (k === "/") { e.preventDefault(); $("#q").focus(); $("#q").select(); }
+      else if (k === "f" || k === "F") toggleFullscreen();
+      else if (k === "[") $("#ab-left").click();
+      else if (k === "]") $("#ab-right").click();
+      else if (k === "a" || k === "A") $("#ab-ask").click();
+      else if (k === "l" || k === "L") setPanel("no-legend", b.classList.contains("no-legend"));
+      else if (k === "c" || k === "C") setMode(S.mode === "corridor" ? "atlas" : "corridor");
+      else if (k === "?") $("#ab-help").click();
+      else if (k === "Escape") {
+        if (!$("#help").hidden) $("#help").hidden = true;
+        else if (map._popup && map.hasLayer(map._popup)) map.closePopup();
+        else if (S.selCand) { S.selCand = null; renderInspector(); drawPlan(false); }
+        else if (S.level === "district") goState(S.sid);
+        else if (S.level === "state" || S.mode === "corridor") { S.mode = "atlas"; S.route = null; clearLayers("route"); goIndia(); }
+      }
+      else if (/^[1-5]$/.test(k) && S.level !== "india" && S.mode !== "corridor") { S.tab = ["overview", "plan", "sens", "chargers", "ledger"][+k - 1]; renderInspector(); }
+    });
+    map.on("mousemove", e => { $("#sb-cursor").textContent = `${e.latlng.lat.toFixed(4)}°N ${e.latlng.lng.toFixed(4)}°E · z${map.getZoom().toFixed(1)}`; });
+    syncToolbar();
   }
 
   /* ------------------------------------------------------------------ assistant */
@@ -953,7 +1056,7 @@
   }
 
   const origRender = render;
-  render = function () { origRender(); if ($("#asks")) renderAskSuggestions(); };
+  render = function () { origRender(); if ($("#asks")) renderAskSuggestions(); updateStatus(); syncToolbar(); };
 
   boot();
 })();
