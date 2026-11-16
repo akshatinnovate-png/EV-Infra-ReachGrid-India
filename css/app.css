@@ -260,3 +260,147 @@ footer { border-top: 2px solid var(--line); padding: 18px 16px 40px; font-family
   .fw { position: relative !important; width: 100% !important; box-shadow: none; max-height: none; }
   .tabs { display: none; }
 }
+
+/* =====================================================================
+   WORKSPACE (app mode): full-viewport, docked panels, serious tool chrome
+   ===================================================================== */
+.launch { max-width: 1180px; margin: 30px auto 70px; padding: 0 16px; }
+.launchwin .bd { padding: 22px; }
+.launch h2 { font-family: var(--sans); font-size: clamp(30px, 4vw, 52px); letter-spacing: -.04em; line-height: .95; margin: 0 0 12px; }
+.launch p { font-family: var(--sans); font-size: 16px; line-height: 1.5; max-width: 560px; }
+.launch-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 28px; align-items: center; }
+.kbd-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; font-size: 13px; }
+kbd { display: inline-block; min-width: 20px; padding: 1px 6px; border: 1.5px solid var(--line); border-bottom-width: 3px; background: var(--paper); font: 600 11.5px var(--mono); text-align: center; }
+@media (max-width: 760px) { .launch-grid { grid-template-columns: 1fr; } }
+
+.desk-wrap { display: none; }
+.appbar, .statusbar, .resizer, .help { display: none; }
+
+body.app-mode { overflow: hidden; height: 100vh; height: 100dvh; }
+body.app-mode > :not(#atlas):not(#boot):not(script) { display: none !important; }
+body.app-mode .desk-wrap { display: block; position: fixed; inset: 0; padding: 0; z-index: 50; }
+body.app-mode {
+  --nav-w: 320px; --insp-w: 430px;
+  --ws-bg: #eceae6; --panel: #f7f6f3; --panel-2: #ebe9e4; --rule: #1b1b1d;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) body.app-mode { --ws-bg: #121215; --panel: #1a1a1f; --panel-2: #24242a; } }
+:root[data-theme="dark"] body.app-mode { --ws-bg: #121215; --panel: #1a1a1f; --panel-2: #24242a; }
+
+body.app-mode .desk {
+  position: absolute; inset: 0; height: auto; border: 0; background: var(--ws-bg);
+  display: grid; overflow: hidden;
+  grid-template-columns: var(--nav-w) 5px minmax(0, 1fr) 5px var(--insp-w);
+  grid-template-rows: 46px minmax(0, 1fr) 26px;
+  grid-template-areas: "bar bar bar bar bar" "nav rzl map rzr insp" "sb sb sb sb sb";
+}
+body.app-mode .desk::before, body.app-mode .desk .blob { display: none; }
+body.app-mode.no-left .desk { grid-template-columns: 0 0 minmax(0, 1fr) 5px var(--insp-w); }
+body.app-mode.no-right .desk { grid-template-columns: var(--nav-w) 5px minmax(0, 1fr) 0 0; }
+body.app-mode.no-left.no-right .desk { grid-template-columns: 0 0 minmax(0, 1fr) 0 0; }
+body.app-mode.no-left #w-nav, body.app-mode.no-left #rz-left, body.app-mode.no-right #w-insp, body.app-mode.no-right #rz-right { display: none; }
+body.app-mode .desk-order { display: contents; }
+
+/* toolbar */
+body.app-mode .appbar { grid-area: bar; display: flex; align-items: center; gap: 10px; padding: 0 10px; background: var(--ink); color: var(--paper); border-bottom: 2px solid var(--rule); min-width: 0; }
+.ab-brand { font: 700 17px var(--sans); letter-spacing: -.02em; text-decoration: none; white-space: nowrap; color: var(--paper); }
+.ab-brand span { font-weight: 500; opacity: .7; }
+body.app-mode .crumbs { position: static; transform: none; max-width: none; min-width: 0; overflow: hidden; flex: 0 1 auto; }
+body.app-mode .crumbs button { border-color: var(--paper); background: transparent; color: var(--paper); font-size: 12.5px; padding: 3px 9px; }
+body.app-mode .crumbs button:last-child { background: var(--paper); color: var(--ink); }
+body.app-mode .crumbs button:hover { background: var(--hot); color: #fff; border-color: var(--hot); }
+.ab-search { flex: 1 1 260px; max-width: 420px; min-width: 120px; margin-left: auto; }
+.ab-search input { width: 100%; background: var(--paper); color: var(--ink); border: 0 !important; padding: 7px 10px !important; }
+.ab-search .results { color: var(--ink); }
+.ab-mode { border-color: var(--paper) !important; }
+.ab-mode button { background: transparent; color: var(--paper); }
+.ab-mode button + button { border-left-color: var(--paper) !important; }
+.ab-mode button[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
+.ab-tools { display: flex; gap: 4px; }
+.ab-btn { width: 32px; height: 30px; border: 1.5px solid rgba(255,255,255,.5); background: transparent; color: var(--paper); cursor: pointer; font-size: 14px; }
+.ab-btn:hover { background: var(--hot); border-color: var(--hot); }
+.ab-btn[aria-pressed="false"] { opacity: .45; }
+
+/* map */
+body.app-mode #map { grid-area: map; position: relative; inset: auto; border: 0; border-left: 0; border-right: 0; background: var(--ws-bg); }
+body.app-mode #map.tiles { background: #f2efe9; }
+body.app-mode .desk .label { display: none; }
+
+/* docked panels */
+body.app-mode .fw { position: relative !important; inset: auto !important; width: auto !important; max-height: none; margin: 0; min-height: 0; box-shadow: none; border: 0; background: var(--panel); }
+body.app-mode .fw > .tb { cursor: default; font-size: 12.5px; padding: 6px 10px; }
+body.app-mode .fw > .tb [data-min] { display: none; }
+body.app-mode #w-nav { grid-area: nav; border-right: 2px solid var(--rule); }
+body.app-mode #w-insp { grid-area: insp; border-left: 2px solid var(--rule); }
+body.app-mode #w-nav > .bd, body.app-mode #w-insp > .bd { flex: 1; min-height: 0; overflow: auto; }
+body.app-mode .tabs { background: var(--panel-2); }
+body.app-mode .kpi, body.app-mode .board, body.app-mode .explain, body.app-mode .scroll, body.app-mode select, body.app-mode input[type=text], body.app-mode input[type=number], body.app-mode input[type=search] { background: var(--paper); }
+body.app-mode .scroll { max-height: none; }
+body.app-mode #w-nav .scroll { max-height: calc(100vh - 330px); }
+
+/* overlays on the map */
+body.app-mode #w-legend { grid-area: map; align-self: end; justify-self: start; z-index: 500; width: 230px !important; margin: 0 0 12px 12px; border: 2px solid var(--rule); box-shadow: var(--shadow); max-height: 60%; }
+body.app-mode #w-legend > .tb [data-min] { display: inline-block; }
+body.app-mode #w-legend > .bd { overflow: auto; }
+body.app-mode #w-ask { grid-area: map; align-self: end; justify-self: end; z-index: 500; width: 340px !important; margin: 0 12px 12px 0; border-radius: 16px; max-height: calc(100% - 24px); }
+body.app-mode.no-ask #w-ask { display: none; }
+body.app-mode.no-legend #w-legend { display: none; }
+
+/* resizers */
+body.app-mode .resizer { display: block; cursor: col-resize; background: var(--panel-2); z-index: 600; }
+body.app-mode .resizer:hover, body.app-mode .resizer.drag { background: var(--hot); }
+body.app-mode #rz-left { grid-area: rzl; }
+body.app-mode #rz-right { grid-area: rzr; }
+
+/* status bar */
+body.app-mode .statusbar { grid-area: sb; display: flex; align-items: center; gap: 18px; padding: 0 10px; background: var(--panel-2); border-top: 2px solid var(--rule); font: 11.5px var(--mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; }
+.statusbar .grow { flex: 1; }
+.statusbar b { color: var(--ink); font-weight: 600; }
+
+/* help */
+body.app-mode .help:not([hidden]) { display: grid; place-items: center; position: absolute; inset: 0; z-index: 2000; background: rgba(0,0,0,.35); }
+.help .win { width: min(440px, calc(100vw - 32px)); }
+
+/* Leaflet controls sit inside the map area */
+body.app-mode .leaflet-top.leaflet-left { margin: 4px; }
+
+/* narrow screens: stacked, scrollable workspace */
+@media (max-width: 900px) {
+  body.app-mode .desk { grid-template-columns: 100% !important; grid-template-rows: auto 52vh auto auto 26px; grid-template-areas: "bar" "map" "insp" "nav" "sb"; overflow-y: auto; }
+  body.app-mode .resizer, .ab-tools #ab-left, .ab-tools #ab-right { display: none !important; }
+  body.app-mode .appbar { flex-wrap: wrap; padding: 6px 8px; gap: 6px; position: sticky; top: 0; z-index: 700; }
+  body.app-mode .crumbs { order: 5; width: 100%; overflow-x: auto; }
+  .ab-search { order: 4; flex-basis: 100%; max-width: none; }
+  body.app-mode #w-nav, body.app-mode #w-insp { display: flex !important; border: 0; border-top: 2px solid var(--rule); }
+  body.app-mode #w-nav .scroll { max-height: 50vh; }
+  body.app-mode #w-ask { width: calc(100% - 24px) !important; max-height: 60%; }
+  body.app-mode #w-legend { width: 180px !important; }
+  body.app-mode .statusbar #sb-cursor, body.app-mode .statusbar #sb-build { display: none; }
+}
+body.app-mode .desk { padding: 0; }
+body.app-mode #map { height: auto; min-height: 0; }
+body.app-mode .appbar { position: relative; z-index: 1100; }
+body.app-mode .crumbs { margin: 0; }
+body.app-mode #w-nav { max-height: none; min-height: 0; }
+body.app-mode #w-nav .scroll { max-height: none; }
+@media (max-width: 900px) {
+  body.app-mode #w-nav > .bd, body.app-mode #w-insp > .bd { flex: none; overflow: visible; }
+  body.app-mode .tabs { position: static; }
+  body.app-mode .ab-tools #ab-ask { display: inline-block; }
+}
+@media (max-width: 900px) {
+  body.app-mode .desk { display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
+  body.app-mode .appbar { order: 0; flex: none; }
+  body.app-mode #map { order: 1; flex: none; height: 55vh; min-height: 300px; }
+  body.app-mode #w-insp { order: 2; flex: none; }
+  body.app-mode #w-nav { order: 3; flex: none; }
+  body.app-mode .statusbar { order: 4; flex: none; position: sticky; bottom: 0; z-index: 700; min-height: 26px; }
+  body.app-mode .fw { min-height: auto; }
+  body.app-mode #w-legend { position: fixed !important; left: 8px !important; bottom: 34px !important; top: auto !important; margin: 0; z-index: 800; }
+  body.app-mode #w-ask { position: fixed !important; left: 8px !important; right: 8px !important; bottom: 34px !important; top: auto !important; width: auto !important; margin: 0; z-index: 900; max-height: 70vh; }
+  body.app-mode #w-ask > .tb [data-min] { display: none; }
+}
+@media (max-width: 900px) {
+  body.app-mode #w-nav .bd, body.app-mode #w-insp .bd { max-height: none; }
+  body.app-mode .statusbar { flex-wrap: nowrap; height: 26px; overflow: hidden; gap: 10px; }
+  body.app-mode .statusbar #sb-metric, body.app-mode .statusbar #sb-net { display: none; }
+}

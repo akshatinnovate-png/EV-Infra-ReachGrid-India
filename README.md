@@ -41,6 +41,24 @@ The app also works on GitHub Pages or any static host.
 Pipeline checks: district populations reconcile to the Census 2011 national total within 0.01%. All 25,587 stations land
 inside a district (38 coastal points snap to the nearest one). 494 districts map one-to-one onto Census 2011 districts; 243 are flagged *imputed*.
 
+## Workspace
+
+**Launch workspace** (or any link with `?app=1`) opens a full-viewport planning app: a toolbar with breadcrumbs and global search,
+a docked navigator and inspector you can resize by dragging (double-click a divider to reset), the map in the middle,
+the legend and assistant floating over the map, and a status bar showing scope, coverage, cursor coordinates, data build and IST clock.
+Panel layout and sizes are remembered. On phones the panels stack under the map.
+
+| Key | Action |
+|---|---|
+| `F` | Full screen |
+| `/` | Search states, districts, towns |
+| `Esc` | Up one level (district → state → India) |
+| `[` / `]` | Hide or show navigator / inspector |
+| `A` / `L` | Assistant / legend |
+| `1`–`5` | Overview · Plan · Sensitivity · Chargers · Ledger |
+| `C` | Corridor mode |
+| `?` | Shortcut help |
+
 ## Features
 
 - **Drill-down atlas**: India → state → district. Choropleths for eight metrics: population beyond 10 km, mean distance,
