@@ -22,7 +22,9 @@ python3 serve.py
 On Windows, double-click `start-windows.bat` or run `python serve.py`.
 
 It runs at <http://localhost:5050>. Pass another port with `python3 serve.py 7000`, or set `PORT=7000`.
-If the port is busy, the next free port is used. Any static server works too, for example `npx serve -l 5050`. Deep links work, for example `?r=jharkhand/east-singhbhum`, `?r=maharashtra/pune` or `?r=uttar-pradesh`.
+If the port is busy, the next free port is used. Any static server works too, for example `npx serve -l 5050`.
+
+**Live:** <https://akshatinnovate-png.github.io/EV-Infra-ReachGrid-India/> (GitHub Pages from `main`). Workspace: <https://akshatinnovate-png.github.io/EV-Infra-ReachGrid-India/?app=1> Deep links work, for example `?r=jharkhand/east-singhbhum`, `?r=maharashtra/pune` or `?r=uttar-pradesh`.
 The app also works on GitHub Pages or any static host.
 
 ## What's real
