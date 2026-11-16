@@ -7,7 +7,8 @@ If the port is busy, the next free one is used.
 """
 import functools, http.server, os, socket, sys, webbrowser
 
-port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 5050))
+nums = [a for a in sys.argv[1:] if a.isdigit()]
+port = int(nums[0]) if nums else int(os.environ.get("PORT", 5050))
 root = os.path.dirname(os.path.abspath(__file__))
 for p in range(port, port + 50):
     with socket.socket() as s:
