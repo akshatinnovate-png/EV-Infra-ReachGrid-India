@@ -13,11 +13,21 @@ const crypto = require("crypto");
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8" };
 
-function createServer({ appDir, userDir, gov, log = () => {} }) {
+function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch }) {
   const overlayDir = path.join(userDir, "data-overlay");
-  const tileDir = path.join(userDir, "tiles");
+  const tileRoot = path.join(userDir, "tiles");
+  /* Basemap source. CARTO's free basemaps now need an API key, so the default is the OpenStreetMap
+   * Foundation tile server, used within its tile usage policy (identifying User-Agent, local cache,
+   * limited bulk download). Organisations can set their own tile server in Settings -> Data & maps. */
+  const OSM_TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileTemplate = () => (gov && gov.settings().tileUrl) || OSM_TILES;
+  const isOSM = () => tileTemplate() === OSM_TILES;
+  const tileKey = () => isOSM() ? "osm" : crypto.createHash("sha1").update(tileTemplate()).digest("hex").slice(0, 10);
+  const tileDirFor = () => path.join(tileRoot, tileKey());
+  const tileSrc = (z, x, y) => tileTemplate().replace("{s}", "abc"[(x + y) % 3]).replace("{z}", z).replace("{x}", x).replace("{y}", y).replace("{r}", "");
+  const TILE_UA = "ReachGrid-India-Desktop/1.0 (+https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India)";
   const scenDir = path.join(userDir, "scenarios");
-  for (const d of [overlayDir, tileDir, scenDir]) fs.mkdirSync(d, { recursive: true });
+  for (const d of [overlayDir, tileRoot, scenDir]) fs.mkdirSync(d, { recursive: true });
 
   /* ---------- engine in this process (same browser scripts, evaluated in a sandbox global) ---------- */
   const G = { console, setTimeout, clearTimeout, Math, Date, JSON };
@@ -59,17 +69,17 @@ function createServer({ appDir, userDir, gov, log = () => {} }) {
   const send = (res, status, body, headers = {}) => { res.writeHead(status, { "Cache-Control": "no-store", ...headers }); res.end(body); };
   const readBody = (req) => new Promise((ok, bad) => { let b = ""; req.on("data", c => { b += c; if (b.length > 5e6) { bad(new Error("body too large")); req.destroy(); } }); req.on("end", () => ok(b)); req.on("error", bad); });
   async function fetchBuf(url, opts = {}) {
-    const r = await fetch(url, { ...opts, headers: { "User-Agent": "ReachGrid-India-Desktop/1.0", ...(opts.headers || {}) }, signal: AbortSignal.timeout(opts.timeout || 30000) });
+    const r = await fetchImpl(url, { ...opts, headers: { "User-Agent": "ReachGrid-India-Desktop/1.0", ...(opts.headers || {}) }, signal: AbortSignal.timeout(opts.timeout || 30000) });
     if (!r.ok) throw new Error(`${url.split("?")[0]} → HTTP ${r.status}`);
     return Buffer.from(await r.arrayBuffer());
   }
 
-  /* ---------- tiles: disk cache first, then CARTO ---------- */
+  /* ---------- tiles: disk cache first, then the configured tile server ---------- */
   async function tile(res, s, z, x, y) {
-    const f = path.join(tileDir, z, x, y + ".png");
+    const f = path.join(tileDirFor(), z, x, y + ".png");
     if (fs.existsSync(f)) return send(res, 200, fs.readFileSync(f), { "Content-Type": "image/png", "Cache-Control": "max-age=86400", "X-Tile": "cache" });
     try {
-      const buf = await fetchBuf(`https://${"abcd".includes(s) ? s : "a"}.basemaps.cartocdn.com/light_all/${z}/${x}/${y}.png`, { timeout: 15000 });
+      const buf = await fetchBuf(tileSrc(+z, +x, +y), { timeout: 15000, headers: { "User-Agent": TILE_UA } });
       fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, buf);
       send(res, 200, buf, { "Content-Type": "image/png", "Cache-Control": "max-age=86400", "X-Tile": "network" });
     } catch (e) { send(res, 504, "tile unavailable offline", { "Content-Type": "text/plain" }); }
@@ -81,12 +91,16 @@ function createServer({ appDir, userDir, gov, log = () => {} }) {
     const jobs = [];
     for (let z = zmin; z <= zmax; z++) for (let x = lon2x(bbox[0], z); x <= lon2x(bbox[2], z); x++) for (let y = lat2y(bbox[3], z); y <= lat2y(bbox[1], z); y++) jobs.push([z, x, y]);
     if (jobs.length > 20000) throw new Error(`${jobs.length} tiles is too many; zoom in or lower the max zoom`);
+    // OpenStreetMap tile usage policy: no bulk download of more than 250 tiles at zoom 13 or higher
+    const deep = jobs.filter(j => j[0] >= 13).length;
+    if (isOSM() && deep > 250) throw new Error(`${deep} tiles at zoom 13+ exceeds the OpenStreetMap tile policy limit of 250 for offline download. Choose "Overview (z ≤ 12)", a smaller area, or set your own tile server.`);
+    const tileDir = tileDirFor();
     let done = 0, failed = 0, i = 0;
     const worker = async () => {
       while (i < jobs.length && !(signal && signal.aborted)) {
         const [z, x, y] = jobs[i++]; const f = path.join(tileDir, String(z), String(x), y + ".png");
         if (!fs.existsSync(f)) {
-          try { const buf = await fetchBuf(`https://${"abcd"[(x + y) % 4]}.basemaps.cartocdn.com/light_all/${z}/${x}/${y}.png`, { timeout: 15000 }); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, buf); }
+          try { const buf = await fetchBuf(tileSrc(z, x, y), { timeout: 15000, headers: { "User-Agent": TILE_UA } }); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, buf); }
           catch { failed++; }
         }
         done++; if (done % 10 === 0 || done === jobs.length) onProgress && onProgress(done, jobs.length, failed);
@@ -186,7 +200,7 @@ function createServer({ appDir, userDir, gov, log = () => {} }) {
     return { substations: pts.length / 3 };
   }
 
-  return { listen, server, prefetchTiles, tileCacheSize: () => dirSize(tileDir), clearTiles: () => { fs.rmSync(tileDir, { recursive: true, force: true }); fs.mkdirSync(tileDir, { recursive: true }); }, checkDataUpdate, applyDataUpdate, revertData, currentBuild, refreshGridFromOSM, engine: G, core, stateData };
+  return { listen, server, prefetchTiles, tileCacheSize: () => dirSize(tileRoot), clearTiles: () => { fs.rmSync(tileRoot, { recursive: true, force: true }); fs.mkdirSync(tileRoot, { recursive: true }); }, tileInfo: () => ({ template: tileTemplate(), osm: isOSM(), key: tileKey() }), checkDataUpdate, applyDataUpdate, revertData, currentBuild, refreshGridFromOSM, engine: G, core, stateData };
 }
 
 module.exports = { createServer, crypto };

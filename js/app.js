@@ -134,7 +134,9 @@
   function initMap() {
     map = L.map("map", { zoomSnap: 0.25, zoomDelta: 0.5, minZoom: 3.5, maxZoom: 17, worldCopyJump: false, attributionControl: true });
     canvasR = L.canvas({ padding: 0.4 });
-    tiles = L.tileLayer(DESK ? "/tiles/{s}/{z}/{x}/{y}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>' });
+    // basemap: OpenStreetMap tiles by default (the desktop app proxies and caches them; Settings can point it at another tile server)
+    const ti = DESK ? (DESK.info().tiles || { osm: true, key: "osm" }) : { osm: true, key: "osm" };
+    tiles = L.tileLayer(DESK ? `/tiles/{s}/{z}/{x}/{y}.png?src=${ti.key}` : "https://tile.openstreetmap.org/{z}/{x}/{y}.png", { subdomains: "abc", maxZoom: 19, className: ti.osm ? "osm-muted" : "", attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' + (ti.osm ? "" : " · custom tile server") });
     map.attributionControl.setPrefix('<a href="#sources">ReachGrid data sources</a>');
     ["context", "base", "roads", "cells", "route", "chargers", "places", "cands", "extra", "sites", "osm"].forEach(k => { G[k] = L.layerGroup().addTo(map); });
     map.fitBounds([[6.5, 68], [35.7, 97.4]]);
@@ -1758,8 +1760,10 @@
         <div class="hdr"><span>Live grid layer</span></div><p class="sub">Fetch every power substation in India from OpenStreetMap (Overpass) and use it for grid proximity in feasibility scores, instead of the power-plant proxy. Takes 1–5 minutes.</p>
         <button class="btn sm" id="gr" ${admin ? "" : "disabled"}>Refresh substations from OpenStreetMap</button><div id="gr-o" class="sub" style="margin-top:6px"></div>
         <div class="hdr"><span>Offline street maps</span></div><p class="sub">Every tile you view is cached. To work offline in the field, download a whole region in advance.</p>
-        <div class="grid2"><label class="f">Region<select id="of-reg">${reg ? `<option value="cur">${esc(regionName())}</option>` : ""}<option value="view">Current map view</option></select></label><label class="f">Detail (max zoom)<select id="of-z"><option value="11">Overview (z ≤ 11)</option><option value="13" selected>Town level (z ≤ 13)</option><option value="15">Street level (z ≤ 15)</option></select></label></div>
+        <div class="grid2"><label class="f">Region<select id="of-reg">${reg ? `<option value="cur">${esc(regionName())}</option>` : ""}<option value="view">Current map view</option></select></label><label class="f">Detail (max zoom)<select id="of-z"><option value="12" selected>Overview (z ≤ 12)</option><option value="13">Town level (z ≤ 13)</option><option value="15">Street level (z ≤ 15)</option></select></label></div>
         <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" id="of-go">Download for offline</button><button class="btn sm ghost" id="of-x">Cancel</button><button class="btn sm ghost" id="of-clr">Clear cache</button></div><div id="of-o" class="sub" style="margin-top:6px"></div>
+        <div class="hdr"><span>Basemap tile server</span></div><p class="sub">Default: the OpenStreetMap Foundation tile server, within its usage policy (offline downloads above zoom 12 are limited to 250 tiles). Organisations with their own or a commercial tile service can paste its URL template here.</p>
+        <div style="display:flex;gap:6px"><input id="tu" type="text" style="flex:1" placeholder="https://tile.openstreetmap.org/{z}/{x}/{y}.png" value="${esc(st.tileUrl || "")}" ${admin ? "" : "disabled"}><button class="btn sm" id="tu-s" ${admin ? "" : "disabled"}>Use</button><button class="btn sm ghost" id="tu-r" ${admin ? "" : "disabled"}>Default</button></div><div id="tu-o" class="sub" style="margin-top:6px"></div>
         <div class="hdr"><span>Routing</span></div><label class="lgrow"><input type="checkbox" id="osrm" ${st.osrmRouting ? "checked" : ""} ${admin ? "" : "disabled"}> corridor checks use real street routing (OSRM) when online, highway graph otherwise</label>
         <div class="hdr"><span>Your files</span></div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ghost" id="pj-s">Save project…</button><button class="btn sm ghost" id="pj-o">Open project…</button><button class="btn sm ghost" id="ud">Open data folder</button></div>`;
       $("#du-c", body).onclick = async () => {
@@ -1780,6 +1784,9 @@
         const r = await DESK.prefetchTiles(bb, 6, +$("#of-z").value);
         $("#of-o").textContent = r.error ? "Failed: " + r.error : `Done: ${nIN(r.total)} tiles available offline${r.failed ? ` (${r.failed} failed; retry when online)` : ""}.`;
       };
+      const setTiles = async (v) => { const r = await DESK.updateSettings({ tileUrl: v }); _deskSettings = null; if (!r.ok) { $("#tu-o").textContent = r.error; return; } $("#tu-o").textContent = "Saved. Reloading the map…"; setTimeout(() => location.reload(), 700); };
+      $("#tu-s", body).onclick = () => setTiles($("#tu").value.trim());
+      $("#tu-r", body).onclick = () => setTiles("");
       $("#of-x", body).onclick = () => DESK.cancelTiles();
       $("#of-clr", body).onclick = async () => { const r = await DESK.clearTiles(); $("#of-o").textContent = `Cache cleared (${r.files} files).`; };
       $("#osrm", body).onchange = async (e) => { const r = await DESK.updateSettings({ osrmRouting: e.target.checked }); _deskSettings = null; toast(r.ok ? "Saved" : r.error); };

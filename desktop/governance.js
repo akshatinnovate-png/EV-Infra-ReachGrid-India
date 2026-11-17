@@ -25,7 +25,7 @@ function createGovernance(userDir) {
 
   let users = readJSON("users.json", null);
   if (!users) { users = { owner: { name: "Owner", role: "admin", hash: null, created: new Date().toISOString() } }; writeJSON("users.json", users); }
-  let settings = { requireSignIn: false, apiKey: crypto.randomBytes(18).toString("base64url"), apiWrite: false, apiPort: 0, osrmRouting: true, autoUpdate: true, ...readJSON("settings.json", {}) };
+  let settings = { tileUrl: "", requireSignIn: false, apiKey: crypto.randomBytes(18).toString("base64url"), apiWrite: false, apiPort: 0, osrmRouting: true, autoUpdate: true, ...readJSON("settings.json", {}) };
   writeJSON("settings.json", settings);
   let workspace = readJSON("workspace.json", {});
   const sessions = new Map();
@@ -124,8 +124,13 @@ function createGovernance(userDir) {
   }
   function updateSettings(patch) {
     if (!can("settings")) return { ok: false, error: "Only an Admin can change settings" };
-    const allowed = ["requireSignIn", "apiWrite", "apiPort", "osrmRouting", "autoUpdate"];
+    const allowed = ["requireSignIn", "apiWrite", "apiPort", "osrmRouting", "autoUpdate", "tileUrl"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) return { ok: false, error: "Unknown setting " + k };
+    if ("tileUrl" in patch && patch.tileUrl) {
+      const t = String(patch.tileUrl).trim();
+      if (!/^https:\/\/\S+$/.test(t) || !["{z}", "{x}", "{y}"].every(k => t.includes(k))) return { ok: false, error: "Tile URL must start with https:// and contain {z}, {x} and {y}" };
+      patch.tileUrl = t;
+    }
     if (patch.requireSignIn && !Object.values(users).some(u => u.role === "admin" && u.hash)) return { ok: false, error: "Set a password for at least one Admin before requiring sign-in" };
     settings = { ...settings, ...patch }; writeJSON("settings.json", settings); auditAdd("settings.update", JSON.stringify(patch));
     return { ok: true, settings: publicSettings() };

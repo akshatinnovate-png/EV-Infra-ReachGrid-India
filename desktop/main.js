@@ -1,6 +1,6 @@
 /* ReachGrid India — desktop application (Electron main process). */
 "use strict";
-const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Notification, safeStorage, nativeImage } = require("electron");
+const { app, BrowserWindow, Menu, ipcMain, dialog, shell, Notification, safeStorage, nativeImage, net } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -126,7 +126,7 @@ function registerIPC() {
   ipcMain.on("store:set", (e, k, v) => { e.returnValue = gov.storeSet(k, v); });
   ipcMain.on("session:get", (e) => { e.returnValue = gov.session(); });
   ipcMain.on("audit:list", (e) => { e.returnValue = gov.auditList(); });
-  ipcMain.on("app:info:sync", (e) => { e.returnValue = { version: app.getVersion(), port, packaged: app.isPackaged, build: srv.currentBuild(), userData: app.getPath("userData"), platform: process.platform }; });
+  ipcMain.on("app:info:sync", (e) => { e.returnValue = { version: app.getVersion(), port, packaged: app.isPackaged, build: srv.currentBuild(), userData: app.getPath("userData"), platform: process.platform, tiles: srv.tileInfo() }; });
 
   ipcMain.handle("auth:signIn", (e, u, p) => gov.signIn(u, p));
   ipcMain.handle("auth:auto", () => gov.autoSignIn());
@@ -229,7 +229,7 @@ async function runSmoke() {
     for (const x of r) ok(x.name, x.pass, x.detail);
     // external API with key (as curl would)
     const key = gov.settings().apiKey;
-    const get = (p, h = {}) => new Promise((res) => http.get({ host: "127.0.0.1", port, path: p, headers: h }, (resp) => { let b = ""; resp.on("data", c => b += c); resp.on("end", () => res({ status: resp.statusCode, body: b })); }).on("error", (e) => res({ status: 0, body: e.message })));
+    const get = (p, h = {}) => new Promise((res) => http.get({ host: "127.0.0.1", port, path: p, headers: h }, (resp) => { let b = "", n = 0; resp.on("data", c => { b += c; n += c.length; }); resp.on("end", () => res({ status: resp.statusCode, body: b, bytes: n, headers: resp.headers })); }).on("error", (e) => res({ status: 0, body: e.message, bytes: 0 })));
     const post = (p, body, h = {}) => new Promise((res) => { const rq = http.request({ host: "127.0.0.1", port, path: p, method: "POST", headers: { "Content-Type": "application/json", ...h } }, (resp) => { let b = ""; resp.on("data", c => b += c); resp.on("end", () => res({ status: resp.statusCode, body: b })); }); rq.on("error", (e) => res({ status: 0, body: e.message })); rq.end(JSON.stringify(body)); });
     const noKey = await get("/api/v1/geographies"); ok("API rejects requests without key", noKey.status === 401, noKey.status);
     const geo = await get("/api/v1/geographies", { "X-API-Key": key }); ok("API lists geographies with key", geo.status === 200 && JSON.parse(geo.body).count === 36, geo.status);
@@ -242,7 +242,11 @@ async function runSmoke() {
       // online checks: these run in the Windows build pipeline, which has internet access
       const tileUrl = "/tiles/a/6/45/27.png";
       const t = await get(tileUrl); ok("network: basemap tile via proxy + disk cache", t.status === 200, t.status);
+      // a real map tile, not a provider's "API key required" placeholder (those are ~2 KB of mostly blank)
+      ok("network: basemap tile is real map content", t.status === 200 && t.bytes > 6000, `${t.bytes} bytes from ${(srv.tileInfo() || {}).template}`);
       const t2 = await get(tileUrl); ok("network: tile served from cache second time", t2.status === 200, t2.status);
+      let capped = null; try { await srv.prefetchTiles([77.0, 28.3, 77.7, 28.9], 13, 13, null); } catch (e) { capped = e.message; }
+      ok("network: offline download respects OSM tile policy cap", !!capped && /250/.test(capped), capped);
       const pre = await srv.prefetchTiles([86.0, 22.5, 86.6, 23.0], 7, 9, null); ok("network: offline tile download", pre.total > 0 && pre.failed < pre.total, JSON.stringify(pre));
       const dc = await srv.checkDataUpdate().catch(e => ({ error: e.message })); ok("network: data update check reaches published data", !dc.error && !!dc.remote, JSON.stringify(dc));
       const da = await srv.applyDataUpdate(null).catch(e => ({ error: e.message })); ok("network: data update downloads and applies", !da.error && da.files > 30, JSON.stringify(da));
@@ -271,7 +275,8 @@ app.whenReady().then(async () => {
     app.setAppUserModelId("in.reachgrid.india");
     const userDir = app.getPath("userData"); fs.mkdirSync(userDir, { recursive: true });
     gov = createGovernance(userDir);
-    srv = createServer({ appDir: APP_DIR, userDir, gov, log });
+    // Chromium's network stack: honours the system proxy, PAC files and the OS certificate store
+    srv = createServer({ appDir: APP_DIR, userDir, gov, log, fetchImpl: (url, opts) => net.fetch(url, opts) });
     const wanted = gov.settings().apiPort || 0;
     try { port = await srv.listen(wanted); } catch { port = await srv.listen(0); }
     log(`started ${app.getVersion()} on port ${port}, app dir ${APP_DIR}`);
