@@ -42,7 +42,6 @@ done
 
 echo "[7] Electricity infrastructure: WRI power plants (fallback) and OpenStreetMap substations (preferred)"
 curl -fsSL -o raw/gppd.csv "$GH/wri/global-power-plant-database/master/output_database/global_power_plant_database.csv"
-python3 fetch_osm.py substations raw/osm_substations.json
 
 echo "[8] VAHAN registrations by RTO and month: fuel type, vehicle class, maker (India Data Portal mirror, ODC-BY)"
 mkdir -p raw/idp
@@ -51,5 +50,18 @@ curl -fsSL --max-time 1200 -o raw/idp/fuel.csv   "$IDP/c9d109c7-8190-4a67-8166-0
 curl -fsSL --max-time 1200 -o raw/idp/vclass.csv "$IDP/cc32d3e2-7ea3-4b6b-94ab-85e57f6a0a3a/download/registrations-by-vehicle-class.csv" || echo "  IDP vehicle-class table unavailable"
 curl -fsSL --max-time 1800 -o raw/idp/maker.csv  "$IDP/fdbcf474-cef2-474c-993f-00c18134bfc8/download/registrations-by-maker.csv" || echo "  IDP maker table unavailable"
 
-echo "[9] PM E-DRIVE location types from OpenStreetMap: fuel outlets, toll plazas, rail/bus stations, airports, govt premises"
-python3 fetch_osm.py sites raw/osm_sites.json
+echo "[9] OpenStreetMap: PM E-DRIVE location types and power substations (Geofabrik India extract; Overpass fallback)"
+rm -f raw/osm_sites.json raw/osm_substations.json
+if command -v osmium >/dev/null 2>&1 && curl -fsSL --max-time 1800 -o raw/india-latest.osm.pbf https://download.geofabrik.de/asia/india-latest.osm.pbf; then
+  osmium tags-filter --overwrite -o raw/osm_filtered.osm.pbf raw/india-latest.osm.pbf \
+      nwr/amenity=fuel,bus_station,hospital,university,college nwr/barrier=toll_booth n/railway=station \
+      nwr/aeroway=aerodrome nwr/office=government nwr/power=substation \
+    && osmium export --overwrite -f geojsonseq -o raw/osm_filtered.geojsonseq raw/osm_filtered.osm.pbf \
+    && python3 osm_extract.py raw/osm_filtered.geojsonseq raw \
+    || echo "  extract processing failed; trying Overpass"
+  rm -f raw/india-latest.osm.pbf raw/osm_filtered.osm.pbf raw/osm_filtered.geojsonseq
+else
+  echo "  osmium or the Geofabrik extract unavailable; trying Overpass"
+fi
+[ -f raw/osm_sites.json ] || python3 fetch_osm.py sites raw/osm_sites.json
+[ -f raw/osm_substations.json ] || python3 fetch_osm.py substations raw/osm_substations.json
