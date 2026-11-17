@@ -1264,34 +1264,40 @@
   }
 
   /* ------------------------------------------------------------------ assistant */
-  let sdkLoaded = null, apiKey = DESK ? null : store.get("ak", null), chat = [];
-  if (DESK) DESK.secretGet("anthropic").then(k => { if (k) apiKey = k; });
+  /* Assistant: built-in answers always; with a Groq key (desktop app), an agent on openai/gpt-oss-120b that operates
+   * the workspace through tools. The key stays in the main process; the model sees the question, tool results and a
+   * compact context, never the user's files. */
+  let agentOn = false, chat = [];
+  if (DESK && DESK.groqStatus) DESK.groqStatus().then(r => { agentOn = !!(r && r.configured); const s = $("#ask-mode"); if (s) s.textContent = agentOn ? "(connected)" : "(optional)"; });
   function initAsk() {
     const el = $("#ask-body");
     el.innerHTML = `<div class="chatlog" id="chatlog" aria-live="polite"></div>
       <div class="suggest" id="asks"></div>
-      <form class="askbar" id="askform"><input id="askin" placeholder="Ask about any state or district…" autocomplete="off"><button aria-label="Send">↑</button></form>
-      <details style="margin-top:8px;font-family:var(--sans);font-size:11.5px"><summary style="cursor:pointer">Claude answers ${apiKey ? "(connected)" : "(optional)"}</summary>
-        <p style="margin:6px 0">Built-in answers use the loaded data. Add your Anthropic API key for open-ended questions. The key goes straight from your browser to api.anthropic.com and is stored only if you tick “remember”.</p>
-        <div class="askbar"><input type="password" id="akey" placeholder="sk-ant-…" value="${apiKey ? "••••••••" : ""}"><button type="button" id="akeyset" aria-label="Save key">✓</button></div>
-        <label><input type="checkbox" id="akrem" ${store.get("ak", null) ? "checked" : ""}> remember on this device</label> <button type="button" class="linkbtn" id="akclr">forget key</button></details>`;
-    say("bot", "Hi! I'm working from the loaded data: 25k+ real chargers, census demand and the optimiser. Ask me where access is weakest, where to build next, or compare two places.");
+      <form class="askbar" id="askform"><input id="askin" placeholder="Ask, or tell me what to do: “plan ₹10 crore in Nashik”…" autocomplete="off"><button aria-label="Send">↑</button></form>
+      ${DESK ? `<details style="margin-top:8px;font-family:var(--sans);font-size:11.5px"><summary style="cursor:pointer">AI agent: Groq · gpt-oss-120b <span id="ask-mode">${agentOn ? "(connected)" : "(optional)"}</span></summary>
+        <p style="margin:6px 0">With a Groq API key the assistant becomes an agent: it can open regions, set budgets and objectives, run plans, check corridors, plan freight stations and explain sites, step by step in this chat. The key is encrypted by Windows and used only by the app's main process.</p>
+        <div class="askbar"><input type="password" id="akey" placeholder="gsk_…" value="${agentOn ? "••••••••" : ""}"><button type="button" id="akeyset" aria-label="Save key">✓</button></div>
+        <button type="button" class="linkbtn" id="akclr">forget key</button></details>` : ""}`;
+    say("bot", "Hi! I work from the loaded data: 28k+ real chargers, VAHAN registrations by RTO, census demand and the PM E-DRIVE optimiser. Ask where access is weakest, or tell me to plan a district or a corridor.");
     renderAskSuggestions();
     $("#askform").onsubmit = (e) => { e.preventDefault(); const q = $("#askin").value.trim(); if (!q) return; $("#askin").value = ""; ask(q); };
-    $("#akeyset").onclick = () => { const v = $("#akey").value.trim(); if (v && !v.startsWith("•") && DESK) { apiKey = v; if ($("#akrem").checked) DESK.secretSet("anthropic", v); say("bot", "Claude connected. The key is stored encrypted by your operating system."); return; } if (v && !v.startsWith("•")) { apiKey = v; if ($("#akrem").checked) store.set("ak", v); say("bot", "Claude connected. Open questions now go to Claude with the current map context."); } };
-    $("#akclr").onclick = () => { apiKey = null; store.set("ak", null); if (DESK) DESK.secretSet("anthropic", null); $("#akey").value = ""; say("bot", "Key forgotten."); };
+    if (DESK) {
+      $("#akeyset").onclick = async () => { const v = $("#akey").value.trim(); if (!v || v.startsWith("•")) return; const r = await DESK.secretSet("groq", v); if (r && r.ok) { agentOn = true; $("#ask-mode").textContent = "(connected)"; $("#akey").value = "••••••••"; Audit.add("assistant.key_set", "groq"); say("bot", "Agent connected (Groq · gpt-oss-120b). Try: “Plan ₹10 crore in Pune under PM E-DRIVE and tell me the subsidy.”"); } else say("bot", "Could not store the key: " + ((r && r.error) || "unknown")); };
+      $("#akclr").onclick = async () => { await DESK.secretSet("groq", null); agentOn = false; $("#ask-mode").textContent = "(optional)"; $("#akey").value = ""; say("bot", "Key forgotten."); };
+    }
   }
   function renderAskSuggestions() {
-    const s = S.level === "india" ? ["Which districts have the worst access?", "Compare Kerala and Bihar", "Delhi to Jaipur by EV?"] : S.level === "state" ? ["Worst-served districts here?", "Who operates most chargers?", "Where should the next chargers go?"] : ["Where should the next chargers go?", "How reliable is this data?", "How many people are beyond 10 km?"];
+    const s = agentOn ? ["Plan ₹10 crore in Pune under PM E-DRIVE", "Plan e-truck charging Delhi to Jaipur", "Which district in Bihar needs chargers most?"]
+      : S.level === "india" ? ["Which districts have the worst access?", "Compare Kerala and Bihar", "Delhi to Jaipur by EV?"] : S.level === "state" ? ["Worst-served districts here?", "Who operates most chargers?", "Where should the next chargers go?"] : ["Where should the next chargers go?", "How reliable is this data?", "Who operates chargers here?"];
     $("#asks").innerHTML = s.map(x => `<button type="button">${esc(x)}</button>`).join("");
     $$("#asks button").forEach(b => b.onclick = () => ask(b.textContent));
   }
   function say(who, text, small) {
     const log = $("#chatlog"), m = document.createElement("div");
-    m.className = "msg " + (who === "me" ? "me" : ""); m.textContent = text;
-    if (small) { const s = document.createElement("small"); s.textContent = small; m.appendChild(s); }
-    log.appendChild(m); log.scrollTop = log.scrollHeight; return m;
+    m.className = "msg " + who; m.innerHTML = `<div></div><small></small>`; m.firstChild.textContent = text; m.lastChild.textContent = small || "";
+    log.appendChild(m); log.scrollTop = 1e9; return m;
   }
+
   function findRegion(q) {
     const n = norm(q); let best = null;
     for (const s of INDIA.states) if (n.includes(norm(s.name))) best = best && best.name.length > s.name.length ? best : { kind: "state", id: s.id, name: s.name, stats: s.stats };
@@ -1344,34 +1350,110 @@
     if (r) { r.kind === "state" ? goState(r.id) : goDistrict(r.id); return `Opening ${r.name}: ${nIN(r.stats.chargers)} chargers, ${pct(r.stats.coverage["10"], 0)} of people within 10 km.`; }
     return null;
   }
+  /* ---------- agent tools: each one really operates the workspace and returns a compact result ---------- */
+  const planBrief = () => {
+    const A = S.analysis; if (!A) return null; const p = A.plans[S.planKey], sm = PM.summarise(p.selected);
+    return { region: regionName(), objective: p.name, budget_lakh: effOpts().budgetLakh, budget_counts: S.opts.pm.enabled ? S.opts.pm.budgetBasis : "simple cost", threshold_km: S.opts.tauKm,
+      coverage_before: +A.ctx.base.coverage.toFixed(4), coverage_after: +p.metrics.coverage.toFixed(4), people_newly_covered: Math.round(p.metrics.newlyCovered), sites: p.selected.length,
+      pm_edrive: S.opts.pm.enabled ? { project_cost_lakh: sm.total, subsidy_lakh: sm.subsidy, subsidy_by_category_lakh: sm.byCat, agency_outlay_lakh: sm.net, category_a_share: +sm.catAShare.toFixed(3), chargers: sm.chargers } : null,
+      guarantee: p.guarantee ? p.guarantee.basis : null,
+      top_sites: p.selected.slice(0, 6).map((c, i) => ({ rank: i + 1, label: c.label, category: c.pm && c.pm.category, station: c.pm && c.pm.archLabel, cost_lakh: c.cost, people_reached: Math.round(c.raw.gap) })) };
+  };
+  const AGENT_TOOLS = [
+    ["go_to_region", "Open a state, district or town (town opens its district) in the workspace.", { name: { type: "string", description: "e.g. Pune, Bastar, Kerala" } }, ["name"]],
+    ["set_plan_options", "Change planning options and re-optimise. Only pass what should change.", { budget_crore: { type: "number" }, threshold_km: { type: "number" }, objective: { type: "string", enum: ["greedy", "equity", "corridor", "commercial"] }, budget_basis: { type: "string", enum: ["total", "subsidy", "net"] }, pm_edrive: { type: "boolean" }, prefer_battery_swapping: { type: "boolean" } }, []],
+    ["get_plan", "Summary of the current plan: coverage, sites, PM E-DRIVE cost and subsidy by category, top sites.", {}, []],
+    ["get_site", "PM E-DRIVE breakdown and peak-hour queue for one site of the current plan.", { rank: { type: "integer" } }, ["rank"]],
+    ["get_region_stats", "Key statistics for the open region (and ranking of districts in a state).", {}, []],
+    ["forecast_2030", "S-curve EV fleet and chargers (12 / 60 / 240 kW guns) needed in 2030 for the open region.", {}, []],
+    ["compare_with_baseline", "ReachGrid greedy vs EV-to-charger ratio allocation for the same budget.", {}, []],
+    ["check_corridor", "Route between two towns and test EV feasibility.", { from: { type: "string" }, to: { type: "string" }, range_km: { type: "number" } }, ["from", "to"]],
+    ["plan_freight", "Heavy-vehicle (e-truck / e-bus) highway stations along a corridor (PM E-DRIVE highway EV PCS).", { from: { type: "string" }, to: { type: "string" }, range_km: { type: "number" } }, ["from", "to"]],
+    ["open_view", "Show something to the user.", { view: { type: "string", enum: ["overview", "plan", "forecast", "compare", "validate", "evidence", "portfolio", "chargers", "ledger", "split_screen", "proposal_export"] } }, ["view"]],
+  ];
+  async function agentTool(name, a = {}) {
+    const resolve = (n) => challengeTarget(String(n || ""));
+    if (name === "go_to_region") {
+      const r = resolve(a.name); if (!r) return { error: `no state, district or town called ${a.name}` };
+      S.mode = "atlas"; S.route = null; if (r.did) await goDistrict(r.did); else await goState(r.sid);
+      return { opened: scopeName(), level: S.level, ...(planBrief() ? { plan: planBrief() } : {}) };
+    }
+    if (name === "set_plan_options") {
+      if (S.level === "india") return { error: "open a state or district first (go_to_region)" };
+      if (a.budget_crore != null) { const v = Math.max(0.2, Math.min(2000, +a.budget_crore)) * 100; if (S.level === "state") S.opts.budgetStateLakh = v; else S.opts.budgetLakh = v; }
+      if (a.threshold_km != null) S.opts.tauKm = Math.max(2, Math.min(50, Math.round(+a.threshold_km)));
+      if (a.objective) S.planKey = a.objective;
+      if (a.budget_basis || a.pm_edrive != null || a.prefer_battery_swapping != null) S.opts.pm = { ...S.opts.pm, ...(a.budget_basis ? { budgetBasis: a.budget_basis } : {}), ...(a.pm_edrive != null ? { enabled: !!a.pm_edrive } : {}), ...(a.prefer_battery_swapping != null ? { preferSwap: !!a.prefer_battery_swapping } : {}) };
+      store.set("opts", S.opts); S.sens = null; S.compare = null; S.backtest = null;
+      runAnalysis(); drawPlan(true); S.tab = "plan"; renderInspector(); updateStatus(); Audit.add("assistant.plan", JSON.stringify(a).slice(0, 120));
+      return planBrief();
+    }
+    if (name === "get_plan") return planBrief() || { error: "no plan: open a state or district" };
+    if (name === "get_site") {
+      const A = S.analysis; if (!A) return { error: "no plan" }; const c = A.plans[S.planKey].selected[(+a.rank || 1) - 1]; if (!c) return { error: "no such rank" };
+      selectCand(c.id);
+      const { fleet } = fleetInReach(c, A.ctx), q = c.pm ? PM.siteQueue(c.pm.arch, fleet, 1 / (1 + (c.raw.localChargers || 0))) : {};
+      return { label: c.label, lat: c.lat, lng: c.lng, score: +c.score.toFixed(1), people_newly_within_threshold: Math.round(c.raw.gap), existing_chargers_in_reach: c.raw.localChargers,
+        pm_edrive: c.pm && { category: c.pm.category, station: c.pm.archLabel, chargers: c.pm.chargers.map(l => `${l.n} x ${l.kw} kW ${l.conn}`), upstream_lakh: c.pm.upstream, evse_lakh: c.pm.evse, total_lakh: c.pm.total, subsidy_lakh: c.pm.subsidy, net_lakh: c.pm.net },
+        queue: Object.fromEntries(Object.entries(q).map(([g, m]) => [g, { guns: m.guns, p_wait: +m.pWait.toFixed(2), extra_guns_needed: m.extra }])), confidence: E.confidenceFor(c, A.ctx).grade };
+    }
+    if (name === "get_region_stats") { const c = contextForClaude(); delete c.states; if (c.districts) c.districts = c.districts.slice(0, 12); return c; }
+    if (name === "forecast_2030") {
+      const R = regionEV(); if (!R) return { error: "no VAHAN data for this region (open a state or district)" };
+      const F = PM.scurveForecast(R.ev, S.opts.scurve), r = F.rows[F.rows.length - 1];
+      S.tab = "forecast"; renderInspector();
+      return { region: regionName(), anchor_year: F.anchorYear, ev_share_new_regs_now: F.rows[0].share, year: r.year, ev_share_new_regs: r.share, fleet: r.stock, note: "guns and MW are in the Forecast tab now shown" };
+    }
+    if (name === "compare_with_baseline") {
+      const P = S.analysis && S.analysis.plans; if (!P) return { error: "no plan" };
+      return { reachgrid: { people: Math.round(P.greedy.metrics.newlyCovered), sites: P.greedy.metrics.sites, cost_lakh: P.greedy.metrics.cost }, ev_ratio_method: { people: Math.round(P.ratio.metrics.newlyCovered), sites: P.ratio.metrics.sites, cost_lakh: P.ratio.metrics.cost } };
+    }
+    if (name === "check_corridor" || name === "plan_freight") {
+      const f = findPlace(a.from || ""), t = findPlace(a.to || ""); if (!f || !t) return { error: "unknown town(s)" };
+      S.mode = "corridor"; S.corridor.from = f; S.corridor.to = t; if (a.range_km && name === "check_corridor") S.corridor.range = +a.range_km;
+      await goIndia(); await runCorridor(); const g = S.route && S.route.g; if (!g) return { error: (S.route && S.route.error) || "no route" };
+      const base = { from: f[0], to: t[0], km: Math.round(g.total), chargers_near_route: g.stops.length, longest_gap_km: Math.round(g.maxGap), feasible_for_range: g.feasible, range_km: S.corridor.range };
+      if (name === "check_corridor") return base;
+      S.freightCfg = { range: +a.range_km || 150, kw: 120 }; renderInspector(); await new Promise(r => setTimeout(r, 50));
+      const sel = $("#fr-r"); if (sel) sel.value = String(S.freightCfg.range); await runFreight(); const F = S.freight;
+      return { ...base, heavy_vehicle_range_km: S.freightCfg.range, new_highway_stations: F.stations.map(x => ({ km: Math.round(x.at), site: x.name, category: x.pm.category, subsidy_lakh: x.pm.subsidy })), existing_heavy_duty_used: F.used.length, project_cost_lakh: F.summary.total, subsidy_lakh: F.summary.subsidy, passable: F.feasible };
+    }
+    if (name === "open_view") {
+      const v = a.view;
+      if (v === "split_screen") { if (!S.analysis) return { error: "no plan" }; S.tab = "compare"; renderInspector(); openSplit(); return { shown: v }; }
+      if (v === "proposal_export") { if (!S.analysis) return { error: "no plan" }; await exportSNA(); return { shown: "MHI proposal export dialog; the user fills the nodal agency and confirms" }; }
+      if (S.level === "india") return { error: "open a state or district first" };
+      S.tab = v; renderInspector(); return { shown: v };
+    }
+    return { error: "unknown tool " + name };
+  }
+  const SYSTEM = `You are ReachGrid's planning agent for public EV charging in India, inside the ReachGrid desktop app. You operate the workspace with tools: open regions, set budgets and objectives, run plans, inspect sites, forecast, compare with the EV-to-charger ratio method, check corridors and plan heavy-vehicle stations. Use tools to get numbers; never invent figures. Money is in Indian rupees: 1 crore = 100 lakh; tools take budget in crore and return costs in lakh. PM E-DRIVE (MHI Operational Guidelines, 26 Sep 2025): Category A govt premises 100% upstream + 100% EVSE; B govt-controlled public sites (PSU fuel outlets, toll plazas, stations) 80% + 70%; C others 80% upstream; D battery swapping 80% upstream. Caveats to mention when relevant: chargers are listed sites, not verified operational; demand is Census 2011 population; distances are straight-line × detour unless routed; upstream costs are estimates until DISCOM demand notes. Be concise: short paragraphs or bullet points, Indian number formatting.`;
   async function ask(q) {
     say("me", q);
     const local = localAnswer(q);
-    if (!apiKey) { say("bot", local || "I can answer: worst/best access, where to build next, compare A and B, operators, tariffs, data reliability, counts, and “X to Y by EV”. For open questions, add an Anthropic API key below.", "built-in · from bundled data"); renderAskSuggestions(); return; }
-    if (local && /compare|worst|best|where|operator|tariff|how many|to .* by ev/.test(norm(q))) { say("bot", local, "built-in · from bundled data"); }
-    const m = say("bot", "…", "Claude · thinking");
+    if (!agentOn || !DESK || !DESK.groqChat) { say("bot", local || (DESK ? "I can answer: worst/best access, where to build next, compare A and B, operators, tariffs, data reliability, and “X to Y by EV”. Add a Groq API key below and I can operate the workspace for you." : "Open the ReachGrid desktop app for the AI agent."), "built-in · from bundled data"); return; }
+    const tools = AGENT_TOOLS.map(([n, d, props, req]) => ({ type: "function", function: { name: n, description: d, parameters: { type: "object", properties: props, required: req } } }));
+    chat.push({ role: "user", content: `${q}\n\n(Workspace now: ${scopeName()}, level ${S.level}${S.mode === "corridor" ? ", corridor mode" : ""}.)` });
+    const m = say("bot", "…", "agent · Groq gpt-oss-120b"), steps = [];
+    const show = (t) => { m.firstChild.textContent = t; $("#chatlog").scrollTop = 1e9; };
     try {
-      sdkLoaded ||= loadScript("vendor/anthropic-sdk.js");
-      await sdkLoaded;
-      const client = new window.AnthropicSDK({ apiKey, dangerouslyAllowBrowser: true });
-      chat.push({ role: "user", content: `Context (JSON, from ReachGrid's loaded data):\n${JSON.stringify(contextForClaude())}\n\nQuestion: ${q}` });
-      const stream = client.beta.messages.stream({
-        model: "claude-opus-5-5", max_tokens: 4000,
-        betas: ["server-side-fallback-2026-07-01"], fallbacks: "default",
-        output_config: { effort: "low" },
-        system: "You are ReachGrid's planning assistant for EV charging access in India. Answer from the JSON context. Quote numbers with their caveats: chargers are listed sites, not verified operational; demand is Census 2011; distances are straight-line × detour. Never invent figures that are not in the context; say what data would be needed instead. Be concise: under 140 words, plain text, no markdown headings.",
-        messages: chat.slice(-8),
-      });
-      let text = "";
-      stream.on("text", (d) => { text += d; m.firstChild.textContent = text; $("#chatlog").scrollTop = 1e9; });
-      const fin = await stream.finalMessage();
-      if (fin.stop_reason === "refusal") { m.firstChild.textContent = "Claude declined this request. Try rephrasing, or use the built-in answers."; chat.pop(); return; }
-      chat.push({ role: "assistant", content: fin.content.filter(b => b.type === "text") });
-      m.lastChild.textContent = `Claude · ${fin.model}`;
+      for (let round = 0; round < 8; round++) {
+        const r = await DESK.groqChat({ messages: [{ role: "system", content: SYSTEM }, ...chat.slice(-24)], tools, tool_choice: "auto" });
+        if (!r || !r.ok) throw new Error((r && r.error) || "no response");
+        const msg = r.message, calls = msg.tool_calls || [];
+        chat.push({ role: "assistant", content: msg.content || "", ...(calls.length ? { tool_calls: calls } : {}) });
+        if (!calls.length) { show((steps.length ? steps.join("\n") + "\n\n" : "") + (msg.content || "(no answer)")); m.lastChild.textContent = `agent · ${r.model || "gpt-oss-120b"} · ${steps.length} action${steps.length === 1 ? "" : "s"}`; Audit.add("assistant.answer", q.slice(0, 100)); return; }
+        for (const c of calls) {
+          let args = {}; try { args = JSON.parse(c.function.arguments || "{}"); } catch { args = {}; }
+          steps.push(`→ ${c.function.name.replace(/_/g, " ")} ${Object.values(args).join(", ")}`.trim()); show(steps.join("\n") + "\n…");
+          let out; try { out = await agentTool(c.function.name, args); } catch (err) { out = { error: err.message }; }
+          chat.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify(out).slice(0, 6000) });
+        }
+      }
+      show(steps.join("\n") + "\n\n(Stopped after 8 steps. Ask me to continue.)");
     } catch (e) {
-      chat.pop();
-      m.firstChild.textContent = (local ? local + "\n\n" : "") + `(Claude unavailable: ${e.status === 401 ? "invalid API key" : e.message})`;
-      m.lastChild.textContent = "built-in fallback";
+      chat = chat.filter(x => x.role === "user" || (x.role === "assistant" && !x.tool_calls));
+      show((local ? local + "\n\n" : "") + `(Agent unavailable: ${/401|invalid/i.test(e.message) ? "invalid Groq API key" : e.message})`); m.lastChild.textContent = "built-in fallback";
     }
   }
   function contextForClaude() {
@@ -2079,6 +2161,8 @@
     ["New in Round 2: provable optimiser quality", "Modified greedy with its ½(1 − 1/e) guarantee, measured against the exact ILP / LP bound", "Compare"],
     ["New in Round 2: baseline contrast", "Split-screen maps: EV-to-charger ratio allocation vs ReachGrid for the same budget", "Compare"],
     ["New in Round 2: native Windows app", "One-click installer, offline maps and data, auto-update, PDF exports, local API; tested on Windows in CI", "Website → Download"],
+    ["New in Round 2: AI planning agent", "Groq · gpt-oss-120b with tool calling operates the workspace: opens regions, sets budgets, runs PM E-DRIVE plans, plans freight corridors; every number comes from the app's own tools", "Assistant"],
+    ["New in Round 2: team server and in-app rebuild", "Share one workspace on the office network with enforced roles; rebuild chargers, VAHAN and OSM layers inside the app", "Settings → Team · Data"],
   ];
   function openChangelog() {
     modal("Round 1 → Round 2: how the build evolved", `<p class="sub" style="margin-top:0">Each Round 1 roadmap item and what was built, with where to find it.</p><table class="t"><thead><tr><th>Round 1 plan / new requirement</th><th>Built</th><th>Where</th></tr></thead><tbody>${CHANGELOG.map(([a, b, c]) => `<tr><td><b>${esc(a)}</b></td><td>${esc(b)}</td><td class="sub">${esc(c)}</td></tr>`).join("")}</tbody></table>`, { wide: true });
@@ -2103,7 +2187,7 @@
       </ul>
       <div class="hdr"><span>AI models</span></div>
       <ul style="margin:0;padding-left:16px">
-        <li><b>Ask ReachGrid</b> answers from the workspace's own numbers with built-in rules. If a user adds an Anthropic API key (stored encrypted on this computer), questions it cannot answer are sent with the current plan summary to Anthropic's Claude API. Off by default; no data leaves the computer without a key.</li>
+        <li><b>Ask ReachGrid</b> answers from the workspace's own numbers with built-in rules. If a user adds a Groq API key (encrypted on this computer, used only by the app's main process), it becomes an agent on <b>openai/gpt-oss-120b</b> (OpenAI's open-weight model, Apache 2.0) served by Groq: the question, a compact summary of the open region and the results of the app's own tools are sent to Groq; the model operates the workspace through those tools and every number it quotes comes from them. Off by default; nothing leaves the computer without a key.</li>
         <li>No AI model takes part in scoring, optimisation, forecasting or costing: those are deterministic, open formulas (Methodology).</li>
         <li>Development: the team used Anthropic's Claude (Claude Code) as a coding assistant. All outputs are reviewed and covered by automated tests.</li>
       </ul>
@@ -2334,12 +2418,17 @@
         ok("split-screen baseline view", $$(".split-map .leaflet-pane").length >= 2 && /newly covered/.test($("#sp-rk").textContent), $("#sp-rk").textContent);
         $$(".rg-modal").forEach(m => m.remove());
         openChangelog(); ok("Round 1 → Round 2 changelog", $$(".rg-modal tbody tr").length >= 10, $$(".rg-modal tbody tr").length); $$(".rg-modal").forEach(m => m.remove());
-        openDisclosures(); ok("Rule 5 & 6 disclosures", /No synthetic data/.test($(".rg-modal").textContent) && /Claude/.test($(".rg-modal").textContent), ""); $$(".rg-modal").forEach(m => m.remove());
+        openDisclosures(); ok("Rule 5 & 6 disclosures", /No synthetic data/.test($(".rg-modal").textContent) && /gpt-oss-120b/.test($(".rg-modal").textContent), ""); $$(".rg-modal").forEach(m => m.remove());
         const keepBudget = S.opts.budgetLakh;
         openChallenge(); $("#ch-q").value = "Nashik"; $("#ch-f").dispatchEvent(new Event("submit", { cancelable: true }));
         for (let i = 0; i < 100 && !$(".ch-clock.done"); i++) await new Promise(r => setTimeout(r, 100));
         ok("live challenge: district + ₹10 crore plan", $(".ch-clock.done") && S.did === "maharashtra.nashik" && S.analysis.plans.greedy.selected.length > 0, $(".ch-clock") && $(".ch-clock").textContent);
         $$(".rg-modal").forEach(m => m.remove()); S.opts.budgetLakh = keepBudget;
+        // AI agent tools (Groq gpt-oss-120b drives these; exercised directly here since CI has no Groq key)
+        { const g = await agentTool("go_to_region", { name: "Nashik" }); const p = await agentTool("set_plan_options", { budget_crore: 10, objective: "greedy", budget_basis: "total" });
+          const st = await agentTool("get_site", { rank: 1 }); const gs = DESK.groqStatus ? await DESK.groqStatus() : {};
+          ok("AI agent tools operate the workspace", g.opened === "Nashik" && p.budget_lakh === 1000 && p.sites > 0 && p.pm_edrive && st.pm_edrive && st.queue, `${p.sites} sites · subsidy ${p.pm_edrive && p.pm_edrive.subsidy_lakh} · groq key ${gs.configured ? "set" : "not set"}`);
+          S.opts.budgetLakh = 250; }
         // freight corridor planner (NH-48 Delhi → Jaipur)
         S.mode = "corridor"; S.corridor.from = findPlace("Delhi"); S.corridor.to = findPlace("Jaipur"); await goIndia(); await runCorridor();
         if (S.route && S.route.g) { renderInspector(); await new Promise(r => setTimeout(r, 100)); await runFreight(); }
@@ -2411,7 +2500,7 @@
     const tools = $(".ab-tools"); if (!tools || $("#ab-demo")) return;
     const demo = document.createElement("button"); demo.className = "ab-btn ab-role"; demo.id = "ab-demo"; demo.textContent = "▶ Demo"; demo.title = "Guided walkthrough"; demo.onclick = tourStart;
     const docs = document.createElement("div"); docs.className = "ab-docs";
-    docs.innerHTML = `<button class="ab-btn ab-role" id="ab-docs" aria-haspopup="true" aria-expanded="false">Docs ▾</button><div class="ab-menu" hidden><a href="methodology.html">Methodology</a><a href="business.html">Business model & roadmap</a><a href="case-study.html">Case-study video (offline)</a><a href="api.html">Scenario API</a><a href="#sources" id="ab-src">Sources & licences</a><a href="#changelog" id="ab-chg">Round 1 → Round 2 changelog</a><a href="#disclosures" id="ab-dis">Data & AI disclosures</a></div>`;
+    docs.innerHTML = `<button class="ab-btn ab-role" id="ab-docs" aria-haspopup="true" aria-expanded="false">Docs ▾</button><div class="ab-menu" hidden><a href="methodology.html">Methodology</a><a href="business.html">Business model & roadmap</a><a href="api.html">Scenario API</a><a href="#sources" id="ab-src">Sources & licences</a><a href="#changelog" id="ab-chg">Round 1 → Round 2 changelog</a><a href="#disclosures" id="ab-dis">Data & AI disclosures</a></div>`;
     tools.prepend(docs); tools.prepend(demo);
     const btn = $("#ab-docs"), menu = $(".ab-menu", docs);
     btn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute("aria-expanded", !menu.hidden); };

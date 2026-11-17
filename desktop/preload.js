@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld("RGLocal", {
   checkAppUpdate: () => ipcRenderer.invoke("app:update"),
   joinTeam: (url) => ipcRenderer.invoke("team:join", url),
   leaveTeam: () => ipcRenderer.invoke("team:leave"),
+  groqChat: (body) => ipcRenderer.invoke("groq:chat", body),
+  groqStatus: () => ipcRenderer.invoke("groq:status"),
 });
 if (isLocal) contextBridge.exposeInMainWorld("RGDesktop", {
   // synchronous workspace store (permission-checked in the main process)
@@ -65,5 +67,7 @@ if (isLocal) contextBridge.exposeInMainWorld("RGDesktop", {
   joinTeam: (url) => ipcRenderer.invoke("team:join", url),
   leaveTeam: () => ipcRenderer.invoke("team:leave"),
   rebuildData: (parts) => ipcRenderer.invoke("data:rebuild", parts),
+  groqChat: (body) => ipcRenderer.invoke("groq:chat", body),
+  groqStatus: () => ipcRenderer.invoke("groq:status"),
   on: (ch, cb) => { if (EVENTS.includes(ch)) ipcRenderer.on(ch, (e, ...a) => cb(...a)); },
 });

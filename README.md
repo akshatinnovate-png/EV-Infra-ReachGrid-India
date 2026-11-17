@@ -33,7 +33,7 @@ The app runs as its own window (Electron), not in a browser. Your profile, proje
 | Live data | one-click data updates from the weekly rebuild; live OpenStreetMap substations for grid proximity |
 | App updates | electron-updater from GitHub Releases, downloaded in the background and installed on restart |
 | Native files | save/open dialogs, PDF reports (`printToPDF`), `.reachgrid` project files (merge evidence, portfolio, reviews and scenarios from colleagues) |
-| Secrets | the optional Claude API key is encrypted with Windows DPAPI (`safeStorage`) |
+| AI planning agent | optional Groq API key (encrypted with Windows DPAPI via `safeStorage`, used only by the main process) turns the assistant into an agent on `openai/gpt-oss-120b` with tool calling: it opens regions, sets budgets and objectives, runs PM E-DRIVE plans, inspects sites, forecasts, plans freight corridors and opens the Annexure export; every number comes from the app's own tools |
 | App windows | methodology, business model and API console open as app windows; external links open in the system browser |
 | Team server | Settings → Team: an Admin shares the workspace on the office network (port 47800 by default). Colleagues' ReachGrid apps join by address and sign in with their own account; evidence, portfolio, reviews and scenarios live on the server, roles are enforced there, and every action is audited under the remote user. Requires passwords; failed sign-ins are rate-limited; proxies are closed to anonymous callers. Plain HTTP: use on a trusted network |
 | In-app rebuild | Settings → Data & maps → Rebuild now: re-downloads the charger listings, VAHAN registrations by RTO and OpenStreetMap PM E-DRIVE locations, and rebuilds them with the pipeline's formulas (no Python). Checked against the Python build on every data refresh (`tests/rebuild.parity.js`) |
@@ -118,8 +118,7 @@ Panel layout and sizes are remembered. On phones the panels stack under the map.
 - **Exports**: shortlist CSV, GeoJSON, a reproducible scenario JSON (inputs, outputs, source hashes and a deterministic scenario ID),
   charger CSV, a print report, and saved scenarios.
 - **Ask ReachGrid**: built-in answers from the loaded data (worst/best access, where to build, comparisons, operators,
-  tariffs, reliability, "X to Y by EV"). There is an optional Claude mode using your own Anthropic API key, sent straight from your browser
-  to the API and stored only if you choose.
+  tariffs, reliability, "X to Y by EV"). With a Groq API key it becomes an agent (`openai/gpt-oss-120b`, tool calling) that operates the workspace for you.
 
 ## Round 2: PM E-DRIVE, VAHAN by RTO, capacity
 

@@ -63,6 +63,8 @@
     openExternal: (url) => (LOCAL ? LOCAL.openExternal(url) : Promise.resolve(window.open(url, "_blank"))),
     openUserData: managed, checkAppUpdate: () => (LOCAL ? LOCAL.checkAppUpdate() : managed()),
     teamStatus: managed, teamStart: managed, teamStop: managed,
+    groqChat: (b) => (LOCAL ? LOCAL.groqChat(b) : Promise.resolve({ ok: false, error: "AI assistant needs the desktop app" })),
+    groqStatus: () => (LOCAL ? LOCAL.groqStatus() : Promise.resolve({ configured: false })),
     joinTeam: (url) => (LOCAL ? LOCAL.joinTeam(url) : managed()), leaveTeam: () => (LOCAL ? LOCAL.leaveTeam() : managed()),
     on: () => {},
   };

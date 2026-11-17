@@ -276,6 +276,20 @@ function registerIPC() {
     const f = path.join(app.getPath("userData"), `secret-${k.replace(/\W/g, "")}.bin`);
     try { return fs.existsSync(f) ? safeStorage.decryptString(fs.readFileSync(f)) : null; } catch { return null; }
   });
+  /* ---------- AI assistant: Groq, openai/gpt-oss-120b with tool calling. The key never leaves the main process. ---------- */
+  const readSecret = (k) => { const f = path.join(app.getPath("userData"), `secret-${k}.bin`); try { return fs.existsSync(f) ? safeStorage.decryptString(fs.readFileSync(f)) : null; } catch { return null; } };
+  ipcMain.handle("groq:status", () => ({ configured: !!readSecret("groq"), model: "openai/gpt-oss-120b" }));
+  ipcMain.handle("groq:chat", async (e, body) => {
+    const key = readSecret("groq"); if (!key) return { ok: false, error: "No Groq API key (Assistant → settings)" };
+    const req = { model: "openai/gpt-oss-120b", temperature: 0.2, max_completion_tokens: 2048, reasoning_effort: "low",
+      messages: Array.isArray(body && body.messages) ? body.messages.slice(-40) : [], tools: body && body.tools, tool_choice: (body && body.tool_choice) || "auto" };
+    try {
+      const r = await net.fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify(req), signal: AbortSignal.timeout(90000) });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) return { ok: false, status: r.status, error: (j && j.error && j.error.message) || `HTTP ${r.status}` };
+      return { ok: true, message: j.choices[0].message, finish: j.choices[0].finish_reason, usage: j.usage, model: j.model };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
   ipcMain.handle("notify", (e, t, b) => { notify(t, b); return true; });
   ipcMain.handle("open:doc", (e, page) => { openDoc(page, page.replace(".html", "")); return true; });
   ipcMain.handle("open:external", (e, url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return true; });
