@@ -2411,7 +2411,7 @@
     const tools = $(".ab-tools"); if (!tools || $("#ab-demo")) return;
     const demo = document.createElement("button"); demo.className = "ab-btn ab-role"; demo.id = "ab-demo"; demo.textContent = "▶ Demo"; demo.title = "Guided walkthrough"; demo.onclick = tourStart;
     const docs = document.createElement("div"); docs.className = "ab-docs";
-    docs.innerHTML = `<button class="ab-btn ab-role" id="ab-docs" aria-haspopup="true" aria-expanded="false">Docs ▾</button><div class="ab-menu" hidden><a href="methodology.html">Methodology</a><a href="business.html">Business model & roadmap</a><a href="api.html">Scenario API</a><a href="#sources" id="ab-src">Sources & licences</a><a href="#changelog" id="ab-chg">Round 1 → Round 2 changelog</a><a href="#disclosures" id="ab-dis">Data & AI disclosures</a></div>`;
+    docs.innerHTML = `<button class="ab-btn ab-role" id="ab-docs" aria-haspopup="true" aria-expanded="false">Docs ▾</button><div class="ab-menu" hidden><a href="methodology.html">Methodology</a><a href="business.html">Business model & roadmap</a><a href="case-study.html">Case-study video (offline)</a><a href="api.html">Scenario API</a><a href="#sources" id="ab-src">Sources & licences</a><a href="#changelog" id="ab-chg">Round 1 → Round 2 changelog</a><a href="#disclosures" id="ab-dis">Data & AI disclosures</a></div>`;
     tools.prepend(docs); tools.prepend(demo);
     const btn = $("#ab-docs"), menu = $(".ab-menu", docs);
     btn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; btn.setAttribute("aria-expanded", !menu.hidden); };
