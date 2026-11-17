@@ -1562,7 +1562,11 @@
     const P = S.analysis && S.analysis.plans; if (!P || !P.ratio || !P.greedy) return "";
     const g = P.greedy.metrics, r = P.ratio.metrics, cr = (m) => m.cost ? m.newlyCovered / (m.cost / 100) : 0;
     const lift = r.newlyCovered ? g.newlyCovered / r.newlyCovered - 1 : null;
-    return `<div class="result-band" style="grid-template-columns:repeat(3,1fr)"><div><b>${people(g.newlyCovered)}</b><span>newly covered, ReachGrid greedy (${g.sites} sites)</span></div><div><b>${people(r.newlyCovered)}</b><span>newly covered, EV/charger ratio (${r.sites} sites)</span></div><div><b style="color:${lift > 0 ? "var(--good)" : "var(--ink)"}">${lift == null ? "—" : (lift >= 0 ? "+" : "") + pct(lift, 0)}</b><span>more unserved people reached for the same ${rupL(effOpts().budgetLakh)} (${people(cr(g))} vs ${people(cr(r))} per ₹ crore)</span></div></div>`;
+    // when the budget is large enough for both methods to reach everyone they can, the difference is the money spent
+    const tie = lift != null && Math.abs(lift) < 0.01 && r.cost > g.cost * 1.02;
+    const third = tie ? `<div><b style="color:var(--good)">−${pct(1 - g.cost / r.cost, 0)}</b><span>same people reached for ${rupL(g.cost)} instead of ${rupL(r.cost)}: ${rupL(r.cost - g.cost)} saved</span></div>`
+      : `<div><b style="color:${lift > 0 ? "var(--good)" : "var(--ink)"}">${lift == null ? "—" : (lift >= 0 ? "+" : "") + pct(lift, 0)}</b><span>more unserved people reached for the same ${rupL(effOpts().budgetLakh)} (${people(cr(g))} vs ${people(cr(r))} per ₹ crore)</span></div>`;
+    return `<div class="result-band" style="grid-template-columns:repeat(3,1fr)"><div><b>${people(g.newlyCovered)}</b><span>newly covered, ReachGrid greedy (${g.sites} sites, ${rupL(g.cost)})</span></div><div><b>${people(r.newlyCovered)}</b><span>newly covered, EV/charger ratio (${r.sites} sites, ${rupL(r.cost)})</span></div>${third}</div>`;
   }
   /** side-by-side maps: EV/charger ratio allocation vs ReachGrid greedy, same region and budget */
   function openSplit() {
