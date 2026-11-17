@@ -105,7 +105,7 @@ t("largest state (Uttar Pradesh, 75 districts) full analysis under 5 s, all thre
   const p = E.runScenarios(ctx, cands, o);
   const types = new Set(cands.map(c => c.host));
   console.log(`    ${ctx.cells.length} cells, ${cands.length} candidates (${[...types].join("/")}), greedy ${(ctx.base.coverage * 100).toFixed(1)}% → ${(p.greedy.metrics.coverage * 100).toFixed(1)}%, ${Date.now() - t0} ms`);
-  assert(types.size === 3);
+  for (const t of ["town", "highway", "hotspot"]) assert(types.has(t), "missing candidate type " + t);   // PM E-DRIVE site types (toll, omc, rail…) may add more
   assert(Date.now() - t0 < 5000);
 });
 
