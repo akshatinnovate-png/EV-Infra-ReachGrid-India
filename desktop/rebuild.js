@@ -208,9 +208,18 @@ async function rebuildVahan(ctx) {
 async function rebuildOSM(ctx) {
   const { india, stateFiles, E, overpass, progress } = ctx;
   progress("osm", "querying OpenStreetMap for PM E-DRIVE location types (1-5 min)");
-  const Q = `[out:json][timeout:900];area["ISO3166-1"="IN"][admin_level=2]->.in;(node["amenity"="fuel"](area.in);way["amenity"="fuel"](area.in);node["barrier"="toll_booth"](area.in);way["barrier"="toll_booth"](area.in);node["railway"="station"](area.in);node["amenity"="bus_station"](area.in);way["amenity"="bus_station"](area.in);node["aeroway"="aerodrome"]["iata"](area.in);way["aeroway"="aerodrome"]["iata"](area.in);node["office"="government"](area.in);way["office"="government"](area.in);way["amenity"="hospital"]["operator:type"~"government|public"](area.in);node["amenity"="hospital"]["operator:type"~"government|public"](area.in);way["amenity"~"university|college"]["operator:type"~"government|public"](area.in););out center tags;`;
-  const j = JSON.parse(await overpass(Q));
-  const els = j.elements || []; if (els.length < 5000) throw new Error(`Overpass returned only ${els.length} elements; nothing changed`);
+  // tiled like pipeline/fetch_osm.py: one national query times out and Overpass then returns a truncated result
+  const BODY = `node["amenity"="fuel"]({b});way["amenity"="fuel"]({b});node["barrier"="toll_booth"]({b});way["barrier"="toll_booth"]({b});node["railway"="station"]({b});node["amenity"="bus_station"]({b});way["amenity"="bus_station"]({b});node["aeroway"="aerodrome"]["iata"]({b});way["aeroway"="aerodrome"]["iata"]({b});node["office"="government"]({b});way["office"="government"]({b});way["amenity"="hospital"]["operator:type"~"government|public"]({b});node["amenity"="hospital"]["operator:type"~"government|public"]({b});way["amenity"~"university|college"]["operator:type"~"government|public"]({b});`;
+  const LATS = [6, 12, 16, 20, 24, 28, 32, 37.5], LONS = [68, 74, 78, 82, 86, 90, 97.5];
+  const els = [], ids = new Set(); let t = 0; const nT = (LATS.length - 1) * (LONS.length - 1);
+  for (let i = 0; i + 1 < LATS.length; i++) for (let j = 0; j + 1 < LONS.length; j++) {
+    const b = `${LATS[i]},${LONS[j]},${LATS[i + 1]},${LONS[j + 1]}`;
+    progress("osm", `OpenStreetMap tile ${++t}/${nT}`);
+    const r = JSON.parse(await overpass(`[out:json][timeout:360][maxsize:536870912];(${BODY.replace(/\{b\}/g, b)});out center tags;`));
+    if (/error|timed out|out of memory/i.test(r.remark || "")) throw new Error(`Overpass returned a truncated result for tile ${t} (${String(r.remark).slice(0, 80)}); nothing changed`);
+    for (const e of r.elements || []) { const k = e.type + e.id; if (!ids.has(k)) { ids.add(k); els.push(e); } }
+  }
+  if (els.length < 20000) throw new Error(`OpenStreetMap returned only ${els.length} elements; nothing changed`);
   const locate = makeLocator(E, stateFiles), byD = new Map(), seen = new Set(); let n = 0;
   for (const e of els) {
     const lat = e.lat ?? (e.center || {}).lat, lon = e.lon ?? (e.center || {}).lon; if (lat == null || lon == null) continue;
