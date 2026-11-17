@@ -45,6 +45,16 @@ t("archetypes: highway host → highway; low e-4W share town → 2W/3W hub (or B
   assert.strictEqual(P.archetypeOf({ host: "town" }, { e4w: 0.08 }, P.DEFAULTS), "city");
 });
 
+t("freight corridor: reuses heavy-duty chargers, fills gaps, prefers Category B near the end of each leg", () => {
+  const cands = []; for (let k = 5; k < 300; k += 5) cands.push({ at: k, cat: "C", name: "km " + k });
+  cands.push({ at: 108, cat: "B", type: "toll", name: "Toll plaza" });
+  const r = P.freightCorridorPlan({ total: 300, hd: [{ at: 220, name: "existing 240 kW" }], cands, rangeKm: 150, reservePct: 20 });
+  assert(r.feasible); near(r.usable, 120, 1e-9);
+  assert.strictEqual(r.stations[0].name, "Toll plaza", "Category B in the last quarter of the first leg wins over the farthest point");
+  assert(r.used.some(h => h.at === 220), "the existing heavy-duty charger is used");
+  let pos = 0; for (const x of [...r.stations, ...r.used].sort((a, b) => a.at - b.at)) { assert(x.at - pos <= 120 + 1e-9); pos = x.at; } assert(300 - pos <= 120);
+  assert(r.stations.every(s => s.pm.arch === "highway" && s.pm.ratingKw === 360));
+});
 console.log("Queueing (M/M/c, Erlang C)");
 t("Erlang C known values: c=1 → ρ; c=2, a=1 → 1/3", () => { near(P.erlangC(1, 0.6), 0.6, 1e-12); near(P.erlangC(2, 1), 1 / 3, 1e-12); });
 t("M/M/1 waiting time matches λ/(μ(μ−λ))", () => { const m = P.mmc(3, 4, 1); near(m.wqMin, (3 / (4 * 1)) * 60, 1e-9); });

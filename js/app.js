@@ -961,6 +961,7 @@
   }
   function drawRoute() {
     clearLayers("route");
+    if (S.freight && S.freight.key !== freightKey()) S.freight = null;
     const { r, g, idx } = S.route; if (!r) return;
     const line = r.path.map(([x, y]) => [y, x]);
     L.polyline(line, { color: "#fff", weight: 9, opacity: 0.9 }).addTo(G.route);
@@ -973,6 +974,7 @@
     g.plan.forEach((s, i) => { const p = idx.pts[s.i]; L.marker([p.lat, p.lng], { zIndexOffset: 1000, icon: L.divIcon({ className: "", html: `<div class="sel-pin pop">${i + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(G.route); });
     [[S.route.from, "A"], [S.route.to, "B"]].forEach(([p, t]) => L.marker([p[2], p[1]], { icon: L.divIcon({ className: "", html: `<div class="sel-pin" style="background:#1b1b1d">${t}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) }).addTo(G.route));
     map.flyToBounds(L.latLngBounds(line), { ...mapPad(), duration: 0.8 });
+    drawFreight();
   }
   function renderCorridorInsp(el) {
     $("#insp-title").textContent = "Corridor report";
@@ -993,8 +995,80 @@
       <div class="hdr"><span>Stop profile</span></div>${strip}
       ${g.feasible ? `<div class="hdr"><span>Suggested stops (furthest reachable each leg)</span></div><table class="t"><tbody>${g.plan.map((s, i) => { const p = S.route.idx.pts[s.i]; return `<tr class="click" data-ll="${p.lat},${p.lng}"><td>${i + 1}</td><td>km ${s.at.toFixed(0)}</td><td>${s.off.toFixed(1)} km off route</td><td>${p.dc ? "DC" : "AC/unknown"}${p.verified ? " · ≥2 src" : ""}</td></tr>`; }).join("") || `<tr><td>No stop needed in range.</td></tr>`}</tbody></table>`
         : `<div class="note warnnote">A gap of ${g.maxGap.toFixed(0)} km exceeds the usable ${g.usable.toFixed(0)} km. That stretch (red on the map) is a priority corridor for new DC chargers.</div>`}
-      <div class="note">Gaps over 60% of usable range are pink, over 100% red. Stops are listed sites, not verified as working.</div>`;
+      <div class="note">Gaps over 60% of usable range are pink, over 100% red. Stops are listed sites, not verified as working.</div>
+      <div class="hdr"><span>Heavy-vehicle plan: e-trucks and e-buses</span><span class="sub">PM E-DRIVE highway stations</span></div>
+      <p class="sub" style="margin:0 0 6px">Car chargers do not serve freight. This places highway EV PCS (1 × 240 kW + 2 × 60 kW CCS-II) so a heavy vehicle always reaches a heavy-duty charger, reusing existing ones and preferring Category B toll plazas and PSU outlets on the road.</p>
+      <div class="grid2"><label class="f">Heavy vehicle range<select id="fr-r">${[100, 150, 200, 250, 300].map(v => `<option value="${v}" ${v === (S.freightCfg || {}).range ? "selected" : v === 150 && !(S.freightCfg || {}).range ? "selected" : ""}>${v} km</option>`).join("")}</select></label>
+      <label class="f">Counts as heavy-duty<select id="fr-k">${[[120, "≥ 120 kW listed"], [240, "≥ 240 kW listed"]].map(([v, n]) => `<option value="${v}" ${v === ((S.freightCfg || {}).kw || 120) ? "selected" : ""}>${n}</option>`).join("")}</select></label></div>
+      <button class="btn sm" id="fr-go" style="width:100%;justify-content:center">Plan heavy-vehicle stations</button>
+      <div id="fr-o">${S.freight && S.freight.key === freightKey() ? freightHTML(S.freight) : ""}</div>`;
     $$("[data-ll]", el).forEach(tr => tr.onclick = () => { const [a, b] = tr.dataset.ll.split(","); map.flyTo([+a, +b], 13); });
+    $("#fr-go", el).onclick = () => runFreight();
+    bindFreight(el);
+  }
+  const freightKey = () => S.route && S.route.r ? `${S.route.from[0]}|${S.route.to[0]}|${S.route.g.total.toFixed(1)}|${JSON.stringify(S.freightCfg || {})}` : "";
+  /** state ids the route passes through (sampled every ~10 km) */
+  function statesOnRoute(dense) {
+    const out = new Set(), ds = INDIA.districts.map(d => ({ d, bb: E.bbox(d.geom) }));
+    for (let k = 0; k < dense.length; k += 10) {
+      const [x, y] = dense[k];
+      const hit = ds.find(o => x >= o.bb[0] && x <= o.bb[2] && y >= o.bb[1] && y <= o.bb[3] && E.pointInGeom(x, y, o.d.geom));
+      if (hit) out.add(hit.d.sid);
+    }
+    return [...out];
+  }
+  function stateOfPoint(lat, lng) {
+    const d = INDIA.districts.find(o => { const b = E.bbox(o.geom); return lng >= b[0] && lng <= b[2] && lat >= b[1] && lat <= b[3] && E.pointInGeom(lng, lat, o.geom); });
+    return d ? INDIA.stateById.get(d.sid).name : "";
+  }
+  async function runFreight() {
+    const R = S.route; if (!R || !R.g) return;
+    S.freightCfg = { range: +$("#fr-r").value, kw: +$("#fr-k").value };
+    const o = $("#fr-o"); o.innerHTML = `<p class="sub">Loading chargers and sites along the route…</p>`;
+    const t0 = performance.now(), dense = R.g.dense;
+    const sids = statesOnRoute(dense); await Promise.all(sids.map(loadState));
+    const dIdx = new E.GridIndex(dense.map(p => ({ lat: p[1], lng: p[0] })), 0.05);
+    const proj = (lat, lng, km) => { const n = dIdx.nearest(lat, lng, km); return n ? { at: dense[n.i][2], off: n.d } : null; };
+    const hd = [], cands = [];
+    for (const sid of sids) for (const d of window.RG_STATE[sid].districts) {
+      for (const x of d.chargers) if ((x[4] || 0) >= S.freightCfg.kw) { const p = proj(x[0], x[1], 2); if (p) hd.push({ ...p, lat: x[0], lng: x[1], name: x[2] || "listed charger", kw: x[4] }); }
+      for (const x of d.sites || []) if (["toll", "omc", "fuel", "bus"].includes(x[2])) { const p = proj(x[0], x[1], 1.5); if (p) cands.push({ ...p, lat: x[0], lng: x[1], cat: x[3], type: x[2], name: x[4] || ({ toll: "Toll plaza", omc: "PSU fuel outlet", fuel: "Fuel outlet", bus: "Bus station" })[x[2]], note: x[5] }); }
+    }
+    for (let k = 0; k < dense.length; k += 5) cands.push({ at: dense[k][2], off: 0, lat: dense[k][1], lng: dense[k][0], cat: "C", type: "highway", name: `Highway point, km ${dense[k][2].toFixed(0)}` });
+    const plan = PM.freightCorridorPlan({ total: R.g.total, hd, cands, rangeKm: S.freightCfg.range, reservePct: R.opts.reserve, pm: S.opts.pm });
+    S.freight = { ...plan, key: freightKey(), hdCount: hd.length, siteCount: cands.filter(c => c.type !== "highway").length, ms: performance.now() - t0, from: R.from[0], to: R.to[0] };
+    Audit.add("corridor.freight", `${R.from[0]} → ${R.to[0]} · ${plan.stations.length} stations`);
+    o.innerHTML = freightHTML(S.freight); bindFreight($("#insp-body")); drawFreight();
+  }
+  function freightHTML(F) {
+    const sm = F.summary;
+    return `<div class="kpis" style="margin-top:8px"><div class="kpi"><b>${F.stations.length}</b><span>new highway EV PCS</span></div><div class="kpi"><b>${F.used.length}</b><span>existing heavy-duty chargers used (${F.hdCount} on route)</span></div><div class="kpi"><b>${F.feasible ? "Passable" : "Gap remains"}</b><span>every ${F.usable.toFixed(0)} km usable</span></div>
+      <div class="kpi"><b>${rupL(sm.total)}</b><span>project cost (ex-GST)</span></div><div class="kpi"><b>${rupL(sm.subsidy)}</b><span>PM E-DRIVE subsidy</span></div><div class="kpi"><b>${sm.chargers.bus} · ${sm.chargers.e4w}</b><span>240 kW · 60 kW guns</span></div></div>
+      ${F.stations.length ? `<table class="t"><thead><tr><th>km</th><th>Site</th><th>Cat.</th><th class="n">Subsidy</th></tr></thead><tbody>${F.stations.map((x, i) => `<tr class="click" data-fl="${x.lat},${x.lng}"><td>${x.at.toFixed(0)}</td><td><b>${i + 1}.</b> ${esc(x.name)}${x.note ? `<br><span class="sub">${esc(x.note)}</span>` : ""}</td><td><span class="tag cat cat${x.pm.category}">${x.pm.category}</span></td><td class="n">${rupL(x.pm.subsidy)}</td></tr>`).join("")}</tbody></table>
+      <button class="btn sm" id="fr-x" style="margin-top:6px">Annexure D for this corridor (.xlsx)</button>` : `<p class="sub">Existing heavy-duty chargers already cover this corridor at this range.</p>`}
+      <div class="sub" style="font-size:10.5px;margin-top:4px">${F.siteCount} PM E-DRIVE location types within 1.5 km of the route considered · planned in ${F.ms.toFixed(0)} ms. Listed power is self-reported by the charger dataset.</div>`;
+  }
+  function bindFreight(el) {
+    $$("[data-fl]", el).forEach(tr => tr.onclick = () => { const [a, b] = tr.dataset.fl.split(","); map.flyTo([+a, +b], 13); });
+    const x = $("#fr-x", el); if (x) x.onclick = exportFreight;
+  }
+  function drawFreight() {
+    const F = S.freight; if (!F) return;
+    F.used.forEach(h => L.marker([h.lat, h.lng], { icon: L.divIcon({ className: "", html: `<div class="charger-sq"></div>`, iconSize: [12, 12], iconAnchor: [6, 6] }) }).bindTooltip(`Existing heavy-duty: ${esc(h.name)} (${h.kw} kW) · km ${h.at.toFixed(0)}`, { className: "rg-tip" }).addTo(G.route));
+    F.stations.forEach((s0, i) => L.marker([s0.lat, s0.lng], { zIndexOffset: 1200, icon: L.divIcon({ className: "", html: `<div class="sel-pin pop" style="background:#1f6f4a">${i + 1}</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) }).bindTooltip(`New highway EV PCS ${i + 1} · km ${s0.at.toFixed(0)} · Category ${s0.pm.category}`, { className: "rg-tip" }).addTo(G.route));
+  }
+  async function exportFreight() {
+    const F = S.freight; if (!F || !F.stations.length) return;
+    if (!Gov.need("export", "export")) return;
+    const no = await askText("Highway / Expressway No. for Annexure D (e.g. NH-48)", { placeholder: "NH-48" }); if (no === null) return;
+    const sites = F.stations.map((x, i) => ({ c: { id: `F${String(i + 1).padStart(3, "0")}`, lat: x.lat, lng: x.lng, label: x.name, pm: x.pm, raw: { gap: 0 }, score: null, site: { cat: x.cat, note: x.note } },
+      state: stateOfPoint(x.lat, x.lng), city: "", location: x.name, highway: { no: no || "", from: F.from, to: F.to, milestone: `km ${x.at.toFixed(0)} from ${F.from}` }, confidence: "" }));
+    const meta = store.get("sna_meta", {});
+    const sheets = PM.proposalSheets(sites, { ...meta, scenario: `corridor ${F.from}-${F.to}`, build: INDIA.version, region: `${F.from} → ${F.to}` });
+    const b64 = window.RGXlsx.toBase64(window.RGXlsx.build(sheets)), name = `PM-EDRIVE_AnnexureD_${slug(F.from)}-${slug(F.to)}.xlsx`;
+    Audit.add("export.sna_corridor", `${F.from} → ${F.to} · ${sites.length} stations`);
+    if (DESK) { const r = await DESK.saveFile(name, b64, { base64: true }); if (r && r.ok) toast("Saved " + r.path); }
+    else { const a = document.createElement("a"); a.href = "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64," + b64; a.download = name; a.click(); }
   }
 
   /* ------------------------------------------------------------------ legend */
@@ -2262,6 +2336,12 @@
         for (let i = 0; i < 100 && !$(".ch-clock.done"); i++) await new Promise(r => setTimeout(r, 100));
         ok("live challenge: district + ₹10 crore plan", $(".ch-clock.done") && S.did === "maharashtra.nashik" && S.analysis.plans.greedy.selected.length > 0, $(".ch-clock") && $(".ch-clock").textContent);
         $$(".rg-modal").forEach(m => m.remove()); S.opts.budgetLakh = keepBudget;
+        // freight corridor planner (NH-48 Delhi → Jaipur)
+        S.mode = "corridor"; S.corridor.from = findPlace("Delhi"); S.corridor.to = findPlace("Jaipur"); await goIndia(); await runCorridor();
+        if (S.route && S.route.g) { renderInspector(); await new Promise(r => setTimeout(r, 100)); await runFreight(); }
+        const F = S.freight;
+        ok("freight corridor plan (heavy vehicles)", F && F.feasible && F.stations.every(x => x.pm.arch === "highway") && F.hdCount >= 0, F && `${F.stations.length} new · ${F.used.length} existing used · ${F.hdCount} heavy-duty on route`);
+        S.mode = "atlas"; S.route = null; S.freight = null;
         await goDistrict("jharkhand.east-singhbhum");
       }
       const ev0 = Evidence.all(); const wrote = store.set("evidence", [...ev0, { lat: "22.8", lng: "86.2", name: "smoke", status: "ok" }]); const back = Evidence.all();

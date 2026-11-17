@@ -244,6 +244,31 @@
     return { anchorYear: +anchorY, fits: Object.fromEntries(segs.map(s => [s, { S: fits[s].S, t0: +fits[s].t0.toFixed(1), k: +fits[s].k.toFixed(3), adjusted: fits[s].adjusted }])), rows };
   }
 
+  /* ---------------- freight corridor: heavy-vehicle charging every usable range ---------------- */
+  /** route positions in km from the origin. hd: existing heavy-duty chargers on the route [{at, ...}];
+   *  cands: possible new sites [{at, cat, type, ...}] (Category B sites such as toll plazas and PSU outlets are preferred
+   *  when one lies in the last quarter of the reachable window). Each new station is a highway EV PCS.
+   *  Returns new stations, the existing ones relied on, and whether the corridor becomes passable. */
+  function freightCorridorPlan({ total, hd = [], cands = [], rangeKm = 150, reservePct = 20, preferWindow = 0.25, pm } = {}) {
+    const usable = rangeKm * (1 - reservePct / 100);
+    const H = [...hd].sort((a, b) => a.at - b.at), C = [...cands].sort((a, b) => a.at - b.at);
+    const stations = [], used = []; let pos = 0, ok = true, guard = 0;
+    while (total - pos > usable && guard++ < 500) {
+      const lo = pos, hi = pos + usable;
+      const ex = H.filter(h => h.at > lo + 1e-9 && h.at <= hi);
+      if (ex.length) { const h = ex[ex.length - 1]; used.push(h); pos = h.at; continue; }
+      const win = C.filter(c => c.at > lo + 1e-9 && c.at <= hi);
+      if (!win.length) { ok = false; break; }
+      const far = win[win.length - 1];
+      const pref = win.filter(c => (c.cat === "A" || c.cat === "B") && c.at >= hi - preferWindow * usable);
+      const pick = pref.length ? pref[pref.length - 1] : far;
+      stations.push({ ...pick, pm: costSite({ arch: "highway", site: { cat: pick.cat || "C" } }, pm) });
+      pos = pick.at;
+    }
+    const sm = summarise(stations.map(s => ({ pm: s.pm })));
+    return { usable, stations, used, feasible: ok, summary: sm };
+  }
+
   /* ---------------- MHI proposal workbook (Annexures B, C, D; L/M for BSS) ---------------- */
   const SEG_COLS = [["e2w3w", "e-2W & e-3W"], ["e4w", "e-4W"], ["bus", "e-buses / e-trucks"]];
   function chargerCells(p) {
@@ -318,7 +343,7 @@
     return sheets;
   }
 
-  const API = { SOURCES, proposalSheets, CATEGORIES, CAT_A_SHARE_LIMIT, EVSE_BENCHMARK_LAKH, UPSTREAM_BENCHMARK_LAKH, CHARGER, ARCHETYPES, DEFAULTS, QUEUE_DEFAULTS, SCURVE_DEFAULTS,
+  const API = { SOURCES, proposalSheets, freightCorridorPlan, CATEGORIES, CAT_A_SHARE_LIMIT, EVSE_BENCHMARK_LAKH, UPSTREAM_BENCHMARK_LAKH, CHARGER, ARCHETYPES, DEFAULTS, QUEUE_DEFAULTS, SCURVE_DEFAULTS,
     upstreamBenchmark, ratingKw, categoryOf, archetypeOf, costSite, applyToCandidates, summarise, erlangC, mmc, chargersFor, siteQueue, logisticFit, scurveForecast };
   if (isNode) module.exports = API; else root.RGPMEDrive = API;
 })(typeof self !== "undefined" ? self : this);
