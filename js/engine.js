@@ -141,7 +141,7 @@
   function generateCandidates(ctx, opts) {
     const { cells, base, places, roads, geoms, chargerIdx } = ctx;
     const inside = (x, y) => geoms.some(g => pointInGeom(x, y, g));
-    const byType = { town: [], highway: [], hotspot: [] };
+    const byType = { site: [], town: [], highway: [], hotspot: [] };
     const buckets = new Map(), B = 0.02;              // ~2 km buckets for de-duplication
     const add = (c) => {
       const gy = Math.floor(c.lat / B), gx = Math.floor(c.lng / B);
@@ -150,8 +150,17 @@
         for (const o of b) if (hav(o.lat, o.lng, c.lat, c.lng) < 1.5) return;
       }
       const k = gy + ":" + gx; (buckets.get(k) || buckets.set(k, []).get(k)).push(c);
-      byType[c.host].push(c);
+      byType[c.site ? "site" : c.host].push(c);
     };
+    // 0. real PM E-DRIVE location types (PSU OMC outlets, toll plazas, stations, airports, govt premises) in or near
+    //    under-served demand, without a listed charger within 300 m. Category A/B first: they win de-duplication.
+    const SITE_LABEL = { omc: "PSU fuel outlet", fuel: "Fuel outlet", toll: "Toll plaza", rail: "Railway station", bus: "Bus station", airport: "Airport", gov_office: "Govt. office", gov_hospital: "Govt. hospital", gov_education: "Govt. college / university" };
+    const cellIdx0 = new GridIndex(cells.map(c => ({ lat: c[1], lng: c[0] })), 0.05);
+    const sites = (ctx.sites || []).filter(x => inside(x[1], x[0]) && !chargerIdx.nearest(x[0], x[1], 0.3))
+      .map(x => { const near = cellIdx0.within(x[0], x[1], opts.tauKm / opts.detour); let gap = 0; for (const n of near) if (base.dist[n.i] > opts.tauKm) gap += cells[n.i][2]; return { x, gap }; })
+      .filter(o => o.gap > 0 || o.x[2] === "toll" || o.x[2] === "omc")
+      .sort((a, b) => (a.x[3] > b.x[3] ? 1 : a.x[3] < b.x[3] ? -1 : 0) || b.gap - a.gap);
+    for (const { x } of sites) add({ lat: x[0], lng: x[1], host: x[2], label: (x[4] ? x[4] + " · " : "") + SITE_LABEL[x[2]], site: { type: x[2], cat: x[3], name: x[4], note: x[5] } });
     // 1. towns without a charger within 1 km (largest first)
     for (const [name, lon, lat, pop] of [...places].sort((a, b) => b[3] - a[3])) {
       if (pop < 2000) continue;
@@ -179,12 +188,12 @@
     for (const i of idx) add({ lat: cells[i][1], lng: cells[i][0], host: "hotspot", label: "Demand hotspot" });
     // balanced cap: interleave types so no single type crowds out the others
     const cap = opts.maxCands || 2500, out = [];
-    for (let k = 0; out.length < cap && (k < byType.town.length || k < byType.highway.length || k < byType.hotspot.length); k++)
-      for (const t of ["hotspot", "highway", "town"]) if (byType[t][k] && out.length < cap) out.push(byType[t][k]);
+    for (let k = 0; out.length < cap && (k < byType.site.length || k < byType.town.length || k < byType.highway.length || k < byType.hotspot.length); k++)
+      for (const t of ["site", "hotspot", "highway", "town"]) if (byType[t][k] && out.length < cap) out.push(byType[t][k]);
     // nearest town for labelling (indexed)
     const pIdx = new GridIndex(places.map(p => ({ lat: p[2], lng: p[1], p })), 0.1);
     for (const c of out) {
-      if (c.host === "town") continue;
+      if (c.host === "town" || c.site) continue;
       const n = pIdx.nearest(c.lat, c.lng, 60);
       if (n) { const p = pIdx.pts[n.i].p; c.place = p[0]; c.placeDist = n.d; c.label += n.d < 1 ? ` · ${p[0]}` : ` · ${n.d.toFixed(1)} km from ${p[0]}`; }
     }
@@ -223,7 +232,8 @@
         const g = ctx.gridIdx.nearest(c.lat, c.lng, 150);
         gridKm = g ? g.d : null; gridScore = g ? Math.max(0, 1 - g.d / reachKm) : 0;
       }
-      const hostFeas = c.host === "highway" ? (c.placeDist != null && c.placeDist < 3 ? 0.75 : 0.6) : c.host === "town" ? 0.65 : null;
+      const SITE_FEAS = { omc: 0.85, toll: 0.8, rail: 0.75, bus: 0.75, airport: 0.75, gov_office: 0.8, gov_hospital: 0.75, gov_education: 0.8, fuel: 0.7 };
+      const hostFeas = c.site ? SITE_FEAS[c.site.type] ?? 0.7 : c.host === "highway" ? (c.placeDist != null && c.placeDist < 3 ? 0.75 : 0.6) : c.host === "town" ? 0.65 : null;
       c.raw = {
         gap, equity,
         pressure: vh / (1 + localChargers),
@@ -292,12 +302,15 @@
     const tau = opts.tauKm, B = opts.budgetLakh;
     const d = Float64Array.from(base.dist);
     const chosen = [], steps = [], used = new Set();
-    let remaining = B;
+    let remaining = B, catA = 0;
+    const capA = opts.catACap != null ? opts.catACap : Infinity;   // PM E-DRIVE FAQ 1: Category A ≤ ~20% of requested subsidy
+    const isA = (c) => c.pm && c.pm.category === "A";
     const weightOf = (i) => mode === "equity" ? cells[i][2] * (1 + Math.min(3, base.dist[i] / tau)) : cells[i][2];
     for (;;) {
       let best = null;
       for (const c of cands) {
         if (used.has(c.id) || c.cost > remaining + 1e-9 || c.blocked) continue;
+        if (isA(c) && catA + c.pm.subsidy > capA + 1e-9) continue;
         let g = 0;
         for (const [i, km] of c.reach) if (d[i] > tau && km <= tau) g += weightOf(i);
         if (g <= 0) continue;
@@ -305,11 +318,27 @@
         if (!best || r > best.r || (r === best.r && c.id < best.c.id)) best = { c, g, r };
       }
       if (!best) break;
-      used.add(best.c.id); chosen.push(best.c); remaining -= best.c.cost;
+      used.add(best.c.id); chosen.push(best.c); remaining -= best.c.cost; if (isA(best.c)) catA += best.c.pm.subsidy;
       for (const [i, km] of best.c.reach) if (km < d[i]) d[i] = km;
       steps.push({ id: best.c.id, gain: best.g, ratio: best.r, remaining });
     }
-    return { selected: chosen, steps };
+    // modified greedy (Khuller, Moss & Naor 1999): the better of the ratio-greedy set and the best single affordable site.
+    // For budgeted maximum coverage (monotone submodular) this is guaranteed >= ½(1 − 1/e) ≈ 31.6% of the optimum;
+    // with equal site costs plain greedy is guaranteed >= (1 − 1/e) ≈ 63.2%. The ILP in Compare gives the instance gap.
+    let total = 0; for (const s of steps) total += s.gain;
+    let single = null;
+    for (const c of cands) {
+      if (c.cost > B + 1e-9 || c.blocked || (isA(c) && c.pm.subsidy > capA + 1e-9)) continue;
+      let g = 0; for (const [i, km] of c.reach) if (base.dist[i] > tau && km <= tau) g += weightOf(i);
+      if (!single || g > single.g) single = { c, g };
+    }
+    const uniform = cands.length > 0 && cands.every(c => Math.abs(c.cost - cands[0].cost) < 1e-9);
+    const guarantee = { gain: total, bound: uniform ? 1 - 1 / Math.E : 0.5 * (1 - 1 / Math.E), basis: uniform ? "greedy, equal costs: ≥ (1 − 1/e) of optimum" : "modified greedy, budgeted costs: ≥ ½(1 − 1/e) of optimum", usedSingle: false };
+    if (single && single.g > total + 1e-9) {
+      guarantee.usedSingle = true; guarantee.gain = single.g;
+      return { selected: [single.c], steps: [{ id: single.c.id, gain: single.g, ratio: single.g / single.c.cost, remaining: B - single.c.cost }], guarantee };
+    }
+    return { selected: chosen, steps, guarantee };
   }
 
   /** commercial screening: maximise vehicle-household demand captured per ₹, sharing each cell's demand

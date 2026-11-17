@@ -49,3 +49,27 @@ for ep in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/
   fi
   echo "  $ep failed; trying next"
 done
+
+echo "[8] VAHAN registrations by RTO and month: fuel type, vehicle class, maker (India Data Portal mirror, ODC-BY)"
+mkdir -p raw/idp
+IDP=https://ckandev.indiadataportal.com/dataset/36ea3632-6ec7-43e6-8579-e8c80f7df640/resource
+curl -fsSL --max-time 1200 -o raw/idp/fuel.csv   "$IDP/c9d109c7-8190-4a67-8166-0be1487db419/download/vehicle-registrations-by-fuel-type.csv" || echo "  IDP fuel-type table unavailable"
+curl -fsSL --max-time 1200 -o raw/idp/vclass.csv "$IDP/cc32d3e2-7ea3-4b6b-94ab-85e57f6a0a3a/download/registrations-by-vehicle-class.csv" || echo "  IDP vehicle-class table unavailable"
+curl -fsSL --max-time 1800 -o raw/idp/maker.csv  "$IDP/fdbcf474-cef2-474c-993f-00c18134bfc8/download/registrations-by-maker.csv" || echo "  IDP maker table unavailable"
+
+echo "[9] PM E-DRIVE location types from OpenStreetMap: fuel outlets, toll plazas, rail/bus stations, airports, govt premises"
+Q='[out:json][timeout:1200];area["ISO3166-1"="IN"][admin_level=2]->.in;(
+node["amenity"="fuel"](area.in);way["amenity"="fuel"](area.in);
+node["barrier"="toll_booth"](area.in);way["barrier"="toll_booth"](area.in);
+node["railway"="station"](area.in);
+node["amenity"="bus_station"](area.in);way["amenity"="bus_station"](area.in);
+node["aeroway"="aerodrome"]["iata"](area.in);way["aeroway"="aerodrome"]["iata"](area.in);
+node["office"="government"](area.in);way["office"="government"](area.in);
+way["amenity"="hospital"]["operator:type"~"government|public"](area.in);node["amenity"="hospital"]["operator:type"~"government|public"](area.in);
+way["amenity"~"university|college"]["operator:type"~"government|public"](area.in););out center tags;'
+for ep in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter; do
+  if curl -fsSL --max-time 1500 --data-urlencode "data=$Q" -o raw/osm_sites.tmp "$ep" && python3 -c "import json,sys; d=json.load(open('raw/osm_sites.tmp')); sys.exit(0 if len(d.get('elements',[]))>5000 else 1)"; then
+    mv raw/osm_sites.tmp raw/osm_sites.json; echo "  OSM site types from $ep"; break
+  fi
+  echo "  $ep failed; trying next"
+done

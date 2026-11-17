@@ -518,8 +518,6 @@ def main():
         "states": [], "districts": [],
     }
     india["totals"]["inventory"] = extras.charger_inventory([x for i in range(len(districts)) for x in chargers_by_d[i]])
-    BUILD_VERSION = started.strftime("%Y.%m.%d") + "-" + hashlib.sha256("".join(x.get("sha256") or "" for x in sources).encode()).hexdigest()[:6]
-    india["version"] = BUILD_VERSION
     # VAHAN electric two-wheeler registrations (state, monthly 2020-2024) and district allocation
     vahan = extras.vahan_series(os.path.join(RAW, "vahan"), set(states.keys()))
     if vahan:
@@ -542,6 +540,45 @@ def main():
                         "observed": "2020-01 to 2024-12", "retrieved": retrieved, "kind": "observed",
                         "limits": "Two-wheeler category only (all EV types: BOV, plug-in, strong hybrid). District values are allocated from state totals by Census 2W ownership (derived). 3W/4W/bus use editable ratios.",
                         "sha256": hashlib.sha256(b"".join(open(os.path.join(RAW, "vahan", f), "rb").read() for f in vahan["files"])).hexdigest()})
+    # VAHAN registrations by RTO and month (India Data Portal) -> districts, by year and segment
+    idp_dir = os.path.join(RAW, "idp")
+    ev_meta = None
+    if all(os.path.exists(os.path.join(idp_dir, f)) for f in ("fuel.csv", "vclass.csv", "maker.csv")):
+        obs = {sid: {y: v["years"][y]["e2w"] for y in v["years"]} for sid, v in vahan["states"].items()} if vahan else None
+        ev_d, ev_meta = extras.vahan_rto(idp_dir, districts, obs, {i: districts[i]["census"]["hh_2w"] for i in range(len(districts))})
+        for i, v in ev_d.items():
+            districts[i]["stats"]["ev"] = v
+        direct = sum(m["ev_share"] for h, m in ev_meta["match"].items() if h not in ("unmatched", "state-unknown"))
+        log(f"VAHAN RTO: {ev_meta['rtos']} RTOs {ev_meta['first']}..{ev_meta['latest']}, {direct:.1%} of EVs matched to a district directly; "
+            f"{len(ev_meta['aggregates_removed'])} aggregate rows removed; calibration {json.dumps(ev_meta['calibration'])[:300]}")
+        h = hashlib.sha256()
+        for f in ("fuel.csv", "vclass.csv", "maker.csv"):
+            with open(os.path.join(idp_dir, f), "rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+        sources.append({"id": "vahan_rto", "title": f"VAHAN registrations by RTO and month (fuel type, vehicle class, maker), {ev_meta['first']} to {ev_meta['latest']}",
+                        "publisher": "Ministry of Road Transport & Highways (VAHAN dashboard) via India Data Portal",
+                        "url": "https://indiadataportal.com/p/vehicle-registrations", "licence": "ODC-BY 1.0 (India Data Portal)",
+                        "observed": f"{ev_meta['first']} to {ev_meta['latest']}", "retrieved": retrieved, "kind": "observed",
+                        "limits": f"EV totals and e-rickshaws per RTO are observed. RTOs are matched to districts by name ({direct:.0%} of EVs); the rest are spread within the state. "
+                                  "The e-2W / e-3W (L5) / e-4W / e-bus split of the remainder is modelled from EV-only manufacturers and calibrated to the observed state e-2W series "
+                                  "and to published monthly national e-4W and e-bus figures (see Validate tab for hold-out errors). "
+                                  "e-4W before 2024 is under-attributed (Tata EVs were registered under a mixed maker).",
+                        "sha256": h.hexdigest()})
+    sites = extras.osm_sites(RAW)
+    sites_by_d = collections.defaultdict(list)
+    if sites:
+        for x in sites:
+            i, how = locate(x[1], x[0], 0.02)
+            if i is not None:
+                sites_by_d[i].append(x)
+        for i, d in enumerate(districts):
+            d["stats"]["sites"] = dict(collections.Counter(x[2] for x in sites_by_d[i]))
+        log(f"OSM PM E-DRIVE location types: {len(sites)} sites, " + ", ".join(f"{k} {v}" for k, v in collections.Counter(x[2] for x in sites).most_common()))
+        sources.append({"id": "osm_sites", "title": "PM E-DRIVE location types: PSU OMC and other fuel outlets, toll plazas, railway and bus stations, airports, government premises",
+                        "publisher": "OpenStreetMap contributors (Overpass API)", "url": "https://www.openstreetmap.org", "licence": "ODbL 1.0",
+                        "observed": "snapshot", "retrieved": retrieved, "kind": "observed", "sha256": sha256(os.path.join(RAW, "osm_sites.json")),
+                        "limits": "OSM coverage varies by region. Category (A/B/C) follows the MHI guideline wording from OSM tags (brand/operator); the nodal agency decides the final category (FAQ 2)."})
     grid = extras.grid_points(RAW)
     if grid:
         log(f"grid proxy: {len(grid['points'])} {grid['kind']} points ({grid['source']})")
@@ -551,6 +588,8 @@ def main():
                         "licence": "ODbL 1.0" if grid["kind"] == "substation" else "CC BY 4.0", "observed": "snapshot", "retrieved": retrieved, "kind": "observed",
                         "limits": "Proximity only: spare feeder/transformer capacity is not public and must come from the DISCOM (Evidence tab)."})
 
+    BUILD_VERSION = started.strftime("%Y.%m.%d") + "-" + hashlib.sha256("".join(x.get("sha256") or "" for x in sources).encode()).hexdigest()[:6]
+    india["version"] = BUILD_VERSION
     # official reference counts (BEE, March 2024) — shown side by side, never merged with the dataset
     official = {}
     off_path = os.path.join(HERE, "official_pcs_bee_mar2024.csv")
@@ -571,6 +610,15 @@ def main():
         a["inventory"] = extras.charger_inventory([x for i in idx for x in chargers_by_d[i]])
         if vahan and sid in vahan["states"]:
             a["vahan"] = vahan["states"][sid]
+        if ev_meta:
+            ys = {}
+            for i in idx:
+                for y, v in districts[i]["stats"].get("ev", {}).get("years", {}).items():
+                    ys[y] = extras.add_ev_year(ys.get(y), v)
+            a["ev"] = {"years": dict(sorted(ys.items())),
+                       "monthly": [sum(districts[i]["stats"].get("ev", {}).get("monthly", [0] * 24)[k] for i in idx) for k in range(len(ev_meta["monthly_labels"]))]}
+        if sites:
+            a["sites"] = dict(sum((collections.Counter(districts[i]["stats"].get("sites", {})) for i in idx), collections.Counter()))
         india["states"].append({"id": sid, "name": name, "geom": geom_rounded(g, 3), "stats": a})
     for i, d in enumerate(districts):
         c = d["geom"].representative_point()
@@ -585,6 +633,13 @@ def main():
     india["charger_index"] = pts
     if vahan:
         india["vahan_national"] = vahan["national"]
+    if ev_meta:
+        ny = {}
+        for st in india["states"]:
+            for y, v in st["stats"].get("ev", {}).get("years", {}).items():
+                ny[y] = extras.add_ev_year(ny.get(y), v)
+        india["ev_national"] = {"years": dict(sorted(ny.items()))}
+        india["vahan_rto"] = ev_meta
     if grid:
         india["grid"] = {"kind": grid["kind"], "points": [v for p in grid["points"] for v in (int(round(p[0] * 1e4)), int(round(p[1] * 1e4)), int(p[2]))]}
     india["places"] = sorted(
@@ -623,6 +678,7 @@ def main():
                 "id": d["id"], "name": d["name"], "geom": geom_rounded(geo_md[d["id"]], 4),
                 "cell_km": d["cell_km"], "cells": d["cells"], "chargers": chargers_by_d[i],
                 "places": [[pl["n"], r4(pl["lon"]), r4(pl["lat"]), pl["p"]] for pl in d["places"][:150]],
+                "sites": sites_by_d.get(i, []),
             })
         size = write_js(os.path.join(OUT, "state", f"{sid}.js"), f"(window.RG_STATE=window.RG_STATE||{{}})['{sid}']", st)
         total += size

@@ -38,6 +38,7 @@ jobs:
         run: |
           node tests/engine.test.js
           node tests/advanced.test.js
+          node tests/pmedrive.test.js
       - name: Commit if changed
         run: |
           if git diff --quiet -- data; then echo "No data changes."; exit 0; fi

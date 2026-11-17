@@ -1,6 +1,6 @@
 /* Background worker for heavy jobs (ILP, sensitivity, backtest, budget curve). Proposal §14.1. */
 self.window = self;
-importScripts("../vendor/lp-solver.js", "engine.js", "region.js", "advanced.js", "jobs.js", "../data/india.js", "../data/roads.js");
+importScripts("../vendor/lp-solver.js", "engine.js", "pmedrive.js", "region.js", "advanced.js", "jobs.js", "../data/india.js", "../data/roads.js");
 self.onmessage = (e) => {
   const { id, job, args } = e.data;
   try {

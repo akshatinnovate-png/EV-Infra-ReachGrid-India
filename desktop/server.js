@@ -39,7 +39,7 @@ function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch 
     if (rel.startsWith("data/") && fs.existsSync(o)) return fs.readFileSync(o, enc);
     return fs.readFileSync(path.join(appDir, rel), enc);
   }
-  for (const f of ["vendor/lp-solver.js", "js/engine.js", "js/region.js", "js/advanced.js", "js/jobs.js", "js/apicore.js"]) load(f);
+  for (const f of ["vendor/lp-solver.js", "js/engine.js", "js/pmedrive.js", "js/region.js", "js/advanced.js", "js/jobs.js", "js/apicore.js"]) load(f);
   let coreLoaded = false;
   const core = async () => { if (!coreLoaded) { load("data/india.js"); load("data/roads.js"); coreLoaded = true; } return { india: G.RG_INDIA, roads: G.RG_ROADS }; };
   const stateData = async (sid) => { if (!/^[a-z0-9-]+$/.test(sid)) throw new Error("bad state id"); if (!G.RG_STATE || !G.RG_STATE[sid]) load(`data/state/${sid}.js`); return G.RG_STATE[sid]; };

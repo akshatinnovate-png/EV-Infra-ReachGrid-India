@@ -42,6 +42,7 @@ jobs:
         run: |
           node tests/engine.test.js
           node tests/advanced.test.js
+          node tests/pmedrive.test.js
 
       - name: Install desktop dependencies
         working-directory: desktop

@@ -7,6 +7,7 @@
   const isNode = typeof module !== "undefined" && module.exports;
   const E = isNode ? require("./engine.js") : root.RGEngine;
   const A = () => (isNode ? require("./advanced.js") : root.RGAdvanced);
+  const PM = () => (isNode ? require("./pmedrive.js") : root.RGPMEDrive);
   const idxCache = new Map();
 
   /** national charger points from india.charger_index (lat*1e4, lng*1e4, flags) + optional extra (built) sites */
@@ -46,12 +47,17 @@
   function buildContext({ india, stateData, roads, districtIds, opts, extraChargers, chargerIdx, evByDistrict, graph }) {
     const ds = regionDistricts(stateData, districtIds);
     const statById = new Map(india.districts.map(d => [d.id, d.stats]));
-    const cells = [], vehicleRate = [], places = [], geoms = [], cellDistrict = [];
-    let observed = 0, popTot = 0, evUploaded = 0;
+    const cells = [], vehicleRate = [], places = [], geoms = [], cellDistrict = [], sites = [], mix = {};
+    let observed = 0, popTot = 0, evUploaded = 0, evVahan = 0;
     for (const d of ds) {
       const st = statById.get(d.id);
       let vr = st && st.pop ? st.vehicle_idx / st.pop : 0;
+      // default pressure: registered EVs (VAHAN, RTO-level, 2022 onward) per person; Census vehicle ownership if absent
+      const ev = st && st.ev && st.ev.stock;
+      if (ev && ev.ev > 0 && st.pop && opts.pressureSource !== "census") { vr = ev.ev / st.pop; evVahan++; }
       if (evByDistrict && evByDistrict[d.id] != null && st && st.pop) { vr = evByDistrict[d.id] / st.pop; evUploaded++; }
+      mix[d.id] = ev && ev.ev > 0 ? { e2w: ev.e2w / ev.ev, e3w: ev.e3w / ev.ev, e4w: ev.e4w / ev.ev, bus: ev.bus / ev.ev, stock: ev, pop: st.pop } : null;
+      for (const x of d.sites || []) sites.push(x);
       for (const c of d.cells) { cells.push(c); vehicleRate.push(vr); cellDistrict.push(d.id); }
       for (const p of d.places) places.push(p);
       geoms.push(d.geom);
@@ -64,10 +70,10 @@
     const metric = opts.metric === "network" && graph ? "network" : "straight";
     const base = metric === "network" ? A().networkBaseline(cells, idx, graph, opts) : E.baseline(cells, idx, opts);
     return {
-      districts: ds, cells, vehicleRate, cellDistrict, places, geoms, roads: rl, bbox: bb, chargerIdx: idx, base, metric, graph,
+      districts: ds, cells, vehicleRate, cellDistrict, places, geoms, roads: rl, bbox: bb, chargerIdx: idx, base, metric, graph, sites, mix,
       gridIdx: opts.useGrid === false ? null : gridIndex(india),
       censusFlag: popTot && observed / popTot >= 0.9 ? "observed" : "imputed",
-      pressureSource: evUploaded ? `uploaded EV registrations (${evUploaded}/${ds.length} districts)` : "Census 2011 vehicle ownership proxy",
+      pressureSource: evUploaded ? `uploaded EV registrations (${evUploaded}/${ds.length} districts)` : evVahan ? `VAHAN EV registrations by RTO, 2022 onward (${evVahan}/${ds.length} districts)` : "Census 2011 vehicle ownership proxy",
     };
   }
 
@@ -78,9 +84,25 @@
     if (args.evidence && args.evidence.length) cands = A().applyEvidence(cands, args.evidence, ctx, args.opts);
     E.scoreCandidates(cands, ctx, args.opts);
     if (ctx.metric === "network") A().networkReach(cands, ctx, args.opts);
+    if (args.opts.pm && args.opts.pm.enabled !== false) {
+      // PM E-DRIVE costing: archetype from the district fleet mix, category from the site type, cost on the chosen basis
+      const cIdx = new E.GridIndex(ctx.cells.map(c => ({ lat: c[1], lng: c[0] })), 0.05);
+      const mixFor = (c) => { const n = cIdx.nearest(c.lat, c.lng, 30); return n ? ctx.mix[ctx.cellDistrict[n.i]] : null; };
+      PM().applyToCandidates(cands, mixFor, args.opts.pm);
+      args.opts.catACap = args.opts.pm.capACatA === false ? null : catACapFor(cands, args.opts);
+    }
     return { ctx, cands };
   }
 
-  const API = { chargerIndex, gridIndex, buildContext, analyse };
+  /** Category A cap in ₹ lakh of subsidy: 20% of the subsidy the budget can buy (FAQ 1) */
+  function catACapFor(cands, opts) {
+    const basis = opts.pm.budgetBasis || "total";
+    const B = opts.budgetLakh;
+    if (basis === "subsidy") return PM().CAT_A_SHARE_LIMIT * B;
+    let sub = 0, cost = 0; for (const c of cands) { sub += c.pm.subsidy; cost += c.cost; }
+    return PM().CAT_A_SHARE_LIMIT * B * (cost ? sub / cost : 0.5);
+  }
+
+  const API = { chargerIndex, gridIndex, buildContext, analyse, catACapFor };
   if (isNode) module.exports = API; else root.RGRegion = API;
 })(typeof self !== "undefined" ? self : this);
