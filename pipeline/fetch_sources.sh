@@ -42,13 +42,7 @@ done
 
 echo "[7] Electricity infrastructure: WRI power plants (fallback) and OpenStreetMap substations (preferred)"
 curl -fsSL -o raw/gppd.csv "$GH/wri/global-power-plant-database/master/output_database/global_power_plant_database.csv"
-Q='[out:json][timeout:900];area["ISO3166-1"="IN"][admin_level=2]->.in;(node["power"="substation"](area.in);way["power"="substation"](area.in););out center tags;'
-for ep in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter; do
-  if curl -fsSL --max-time 1000 --data-urlencode "data=$Q" -o raw/osm_substations.tmp "$ep" && python3 -c "import json,sys; d=json.load(open('raw/osm_substations.tmp')); sys.exit(0 if len(d.get('elements',[]))>1000 else 1)"; then
-    mv raw/osm_substations.tmp raw/osm_substations.json; echo "  OSM substations from $ep"; break
-  fi
-  echo "  $ep failed; trying next"
-done
+python3 fetch_osm.py substations raw/osm_substations.json
 
 echo "[8] VAHAN registrations by RTO and month: fuel type, vehicle class, maker (India Data Portal mirror, ODC-BY)"
 mkdir -p raw/idp
@@ -58,18 +52,4 @@ curl -fsSL --max-time 1200 -o raw/idp/vclass.csv "$IDP/cc32d3e2-7ea3-4b6b-94ab-8
 curl -fsSL --max-time 1800 -o raw/idp/maker.csv  "$IDP/fdbcf474-cef2-474c-993f-00c18134bfc8/download/registrations-by-maker.csv" || echo "  IDP maker table unavailable"
 
 echo "[9] PM E-DRIVE location types from OpenStreetMap: fuel outlets, toll plazas, rail/bus stations, airports, govt premises"
-Q='[out:json][timeout:1200];area["ISO3166-1"="IN"][admin_level=2]->.in;(
-node["amenity"="fuel"](area.in);way["amenity"="fuel"](area.in);
-node["barrier"="toll_booth"](area.in);way["barrier"="toll_booth"](area.in);
-node["railway"="station"](area.in);
-node["amenity"="bus_station"](area.in);way["amenity"="bus_station"](area.in);
-node["aeroway"="aerodrome"]["iata"](area.in);way["aeroway"="aerodrome"]["iata"](area.in);
-node["office"="government"](area.in);way["office"="government"](area.in);
-way["amenity"="hospital"]["operator:type"~"government|public"](area.in);node["amenity"="hospital"]["operator:type"~"government|public"](area.in);
-way["amenity"~"university|college"]["operator:type"~"government|public"](area.in););out center tags;'
-for ep in https://overpass-api.de/api/interpreter https://overpass.kumi.systems/api/interpreter; do
-  if curl -fsSL --max-time 1500 --data-urlencode "data=$Q" -o raw/osm_sites.tmp "$ep" && python3 -c "import json,sys; d=json.load(open('raw/osm_sites.tmp')); sys.exit(0 if len(d.get('elements',[]))>5000 else 1)"; then
-    mv raw/osm_sites.tmp raw/osm_sites.json; echo "  OSM site types from $ep"; break
-  fi
-  echo "  $ep failed; trying next"
-done
+python3 fetch_osm.py sites raw/osm_sites.json
