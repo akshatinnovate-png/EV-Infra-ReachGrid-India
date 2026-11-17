@@ -88,7 +88,7 @@
       // PM E-DRIVE costing: archetype from the district fleet mix, category from the site type, cost on the chosen basis
       const cIdx = new E.GridIndex(ctx.cells.map(c => ({ lat: c[1], lng: c[0] })), 0.05);
       const mixFor = (c) => { const n = cIdx.nearest(c.lat, c.lng, 30); return n ? ctx.mix[ctx.cellDistrict[n.i]] : null; };
-      PM().applyToCandidates(cands, mixFor, args.opts.pm);
+      PM().applyToCandidates(cands, mixFor, { ...args.opts.pm, gridKind: ctx.gridIdx ? ctx.gridIdx.kind : null });
       args.opts.catACap = args.opts.pm.capACatA === false ? null : catACapFor(cands, args.opts);
     }
     return { ctx, cands };

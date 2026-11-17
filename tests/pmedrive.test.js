@@ -29,7 +29,8 @@ t("subsidy on EVSE uses the lower of actual and benchmark", () => {
   near(cheap.subsidyEvse, 0.7 * 0.5 * (6.60 / 1.18)); near(dear.subsidyEvse, 0.7 * (6.60 / 1.18));
 });
 t("battery swapping → Category D, upstream only; HT extension adds to upstream", () => {
-  const r = P.costSite({ arch: "bss", gridKm: 4 }); assert.strictEqual(r.category, "D"); near(r.upstream, 6.04 + 3 * 6); near(r.subsidyEvse, 0); near(r.subsidy, 0.8 * (6.04 + 18));
+  assert.strictEqual(P.costSite({ arch: "bss", gridKm: 4, gridKind: "power_plant" }).upstream, 6.04);   // plants: no HT extension
+  const r = P.costSite({ arch: "bss", gridKm: 4, gridKind: "substation" }); assert.strictEqual(r.category, "D"); near(r.upstream, 6.04 + 3 * 6); near(r.subsidyEvse, 0); near(r.subsidy, 0.8 * (6.04 + 18));
 });
 t("Category A share check (FAQ 1: ≤ 20% of requested subsidy)", () => {
   const mk = (cat) => ({ pm: P.costSite({ arch: "city", site: { cat } }) });
@@ -59,6 +60,7 @@ t("full spatial coverage can still queue: busy city site needs extra 60 kW guns"
 console.log("Adoption S-curve (anchored to observed VAHAN share)");
 t("logistic passes through the anchor and saturates", () => {
   const f = P.logisticFit(0.06, 2025, 0.8, 2030); near(f.at(2025), 0.06, 1e-9); assert(f.at(2040) > 0.7 && f.at(2040) < 0.8);
+  const g = P.logisticFit(0.85, 2026, 0.9, 2026); near(g.at(2026), 0.85, 1e-9); assert(g.adjusted && g.at(2027) > 0.85, "inflection at the anchor year: curve still passes the observation and keeps rising");
 });
 t("national projection from bundled VAHAN data grows and stays below saturation", () => {
   const r = P.scurveForecast(window.RG_INDIA.ev_national);
@@ -86,8 +88,9 @@ t("₹10 crore plan stays within budget, Category A within its cap, modified-gre
   assert(p.greedy.guarantee && p.greedy.guarantee.bound > 0.3, JSON.stringify(p.greedy.guarantee));
 });
 t("budget basis: subsidy envelope buys more sites than total project cost", () => {
-  const tot = E.runScenarios(...Object.values(Rg.analyse(args)), opts).greedy.selected.length;
-  const o2 = { ...opts, pm: { ...opts.pm, budgetBasis: "subsidy" } };
+  const o1 = { ...opts, budgetLakh: 200 }, r1 = Rg.analyse({ ...args, opts: o1 });
+  const tot = E.runScenarios(r1.ctx, r1.cands, o1).greedy.selected.length;
+  const o2 = { ...o1, pm: { ...opts.pm, budgetBasis: "subsidy" } };
   const r2 = Rg.analyse({ ...args, opts: o2 }); const sub = E.runScenarios(r2.ctx, r2.cands, o2).greedy.selected.length;
   assert(sub > tot, `${sub} vs ${tot}`);
 });

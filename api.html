@@ -32,10 +32,15 @@
         <tr><td><b>POST</b></td><td class="mono">api/v1/scenarios</td><td><span class="mono">scenario_id, selected_candidate_ids, baseline_metrics, proposed_metrics, assumptions, confidence_warnings</span></td></tr>
         <tr><td><b>GET</b></td><td class="mono">api/v1/scenarios</td><td>Stored scenarios</td></tr>
         <tr><td><b>GET</b></td><td class="mono">api/v1/scenarios/{id}</td><td>Stored inputs, selected sites, score decomposition, coverage deltas, sensitivity results, provenance</td></tr>
+        <tr><td><b>GET</b></td><td class="mono">api/v1/scenarios/{id}/ubec</td><td>Planned stations pre-filled for <b>Unified Bharat E-Charge</b> onboarding: location, availability status, pricing, payment options, EVSEs with BIS and OCPI 2.2.1 connector standards</td></tr>
         <tr><td><b>DELETE</b></td><td class="mono">api/v1/scenarios/{id}</td><td>204</td></tr>
         <tr><td><b>GET</b></td><td class="mono">api/v1/openapi.json</td><td>OpenAPI 3.1 description</td></tr>
       </tbody>
     </table>
+
+    <h2>PM E-DRIVE and Unified Bharat E-Charge</h2>
+    <p>Scenarios use PM E-DRIVE costing by default. Add <span class="mono">"pm_edrive": {"budget_basis": "subsidy", "prefer_swap": false, "cap_category_a": true}</span> to the request to choose what the budget counts. Each selected site then returns its location category (A–D), station configuration with connector standards, upstream and EVSE costs, subsidy split and net cost; the scenario returns an Annexure-B style summary and the optimiser's approximation guarantee.</p>
+    <p>MHI's guidelines require implementing agencies to share charger location, availability, pricing and payment options with the <b>National Unified Hub, Unified Bharat E-Charge</b>, built by BHEL (Step 3(iii), FAQ 12). Its data protocol is not yet published. <span class="mono">GET /scenarios/{id}/ubec</span> therefore produces a draft in a neutral, OCPI-aligned shape: stations start as <span class="mono">PLANNED</span>, pricing and payment options are left for the operator, and each connector carries its BIS standard and the OCPI 2.2.1 code where one exists. The same service can sit behind a ULB or state planning portal: it is a stateless HTTP service with API keys, an OpenAPI 3.1 description and reproducible scenario ids.</p>
 
     <h2>Try it</h2>
     <div class="win"><div class="tb"><span class="t">Console</span></div><div class="bd">

@@ -94,7 +94,8 @@
     const k = { ...DEFAULTS, ...(cfg || {}) };
     const arch = c.arch || "city", A = ARCHETYPES[arch], cat = categoryOf({ ...c, arch }, k), P = CATEGORIES[cat];
     const kw = ratingKw(arch);
-    const extraKm = c.gridKm != null && c.gridKm > 1 ? Math.min(k.htMaxKm, c.gridKm - 1) : 0;
+    // HT extension only against substations: distance to a power plant (fallback proxy) says nothing about feeder length
+    const extraKm = c.gridKind === "substation" && c.gridKm != null && c.gridKm > 1 ? Math.min(k.htMaxKm, c.gridKm - 1) : 0;
     const upstream = upstreamBenchmark(kw) * k.upstreamFactor + extraKm * k.htLakhPerKm;
     const evseLines = A.chargers.map(ch => {
       const benchEx = EVSE_BENCHMARK_LAKH[ch.kw] / (1 + k.gstRate);
@@ -119,7 +120,7 @@
     const k = { ...DEFAULTS, ...(cfg || {}) };
     for (const c of cands) {
       c.arch = archetypeOf(c, mixFor ? mixFor(c) : null, k);
-      c.pm = costSite({ ...c, gridKm: c.raw ? c.raw.gridKm : null }, k);
+      c.pm = costSite({ ...c, gridKm: c.raw ? c.raw.gridKm : null, gridKind: k.gridKind }, k);
       c.cost = c.costOverride != null ? c.costOverride : Math.max(0.01, k.budgetBasis === "subsidy" ? c.pm.subsidy : k.budgetBasis === "net" ? c.pm.net : c.pm.total);
     }
     return cands;
@@ -198,8 +199,11 @@
   /** logistic EV share of new registrations s(t) = S / (1 + exp(-k (t - t0))), anchored so that s(year0) = share0 */
   function logisticFit(share0, year0, S, t0) {
     const s = Math.min(Math.max(share0, 1e-4), S * 0.98);
-    const k = Math.log(S / s - 1) / (t0 - year0);           // from s(year0) = share0
-    return { S, t0, k: isFinite(k) && k > 0 ? k : 0.5, at: (t) => S / (1 + Math.exp(-(isFinite(k) && k > 0 ? k : 0.5) * (t - t0))) };
+    let k = Math.log(S / s - 1) / (t0 - year0), adjusted = false;   // from s(year0) = share0
+    // when the inflection year is at / before the anchor, or the implied steepness is implausible, keep a typical
+    // steepness and move the inflection so the curve still passes through the observed share
+    if (!isFinite(k) || k < 0.15 || k > 2) { k = 0.6; t0 = year0 + Math.log(S / s - 1) / k; adjusted = true; }
+    return { S, t0, k, adjusted, at: (t) => S / (1 + Math.exp(-k * (t - t0))) };
   }
   const SCURVE_DEFAULTS = {
     saturation: { e2w: 0.8, e3w: 0.9, e4w: 0.4, bus: 0.7 },  // long-run EV share of new registrations (assumption)
@@ -237,10 +241,84 @@
         reg: Object.fromEntries(segs.map(s => [s, Math.round(t === +anchorY ? (AY[s] || 0) * aScale : hist[hist.length - 1][s])])),
         stock: Object.fromEntries(segs.map(s => [s, Math.round(stock[s])])) });
     }
-    return { anchorYear: +anchorY, fits: Object.fromEntries(segs.map(s => [s, { S: fits[s].S, t0: fits[s].t0, k: +fits[s].k.toFixed(3) }])), rows };
+    return { anchorYear: +anchorY, fits: Object.fromEntries(segs.map(s => [s, { S: fits[s].S, t0: +fits[s].t0.toFixed(1), k: +fits[s].k.toFixed(3), adjusted: fits[s].adjusted }])), rows };
   }
 
-  const API = { SOURCES, CATEGORIES, CAT_A_SHARE_LIMIT, EVSE_BENCHMARK_LAKH, UPSTREAM_BENCHMARK_LAKH, CHARGER, ARCHETYPES, DEFAULTS, QUEUE_DEFAULTS, SCURVE_DEFAULTS,
+  /* ---------------- MHI proposal workbook (Annexures B, C, D; L/M for BSS) ---------------- */
+  const SEG_COLS = [["e2w3w", "e-2W & e-3W"], ["e4w", "e-4W"], ["bus", "e-buses / e-trucks"]];
+  function chargerCells(p) {
+    const out = [];
+    for (const [seg] of SEG_COLS) {
+      const ls = p.chargers.filter(l => l.seg === seg);
+      if (!ls.length) { out.push("", "", ""); continue; }
+      out.push(ls[0].conn, ls.length === 1 ? ls[0].kw : ls.map(l => l.kw).join(" / "), ls.reduce((s, l) => s + l.n, 0));
+    }
+    return out;
+  }
+  const r2 = (x) => Math.round(x * 100) / 100;
+  /** sites: [{ c (candidate with pm), state, city, location, highway: {no, from, to, milestone} }]; meta: {entity, nodal, stage, date, mode, scenario, build, tauKm, region} */
+  function proposalSheets(sites, meta) {
+    const m = { entity: "", nodal: "", stage: "Proposal", date: new Date().toISOString().slice(0, 10), mode: "", ...meta };
+    const isHw = (x) => x.c.pm.arch === "highway";
+    const pcs = sites.filter(x => x.c.pm.arch !== "bss"), bss = sites.filter(x => x.c.pm.arch === "bss");
+    const costCols = ["Total Electrical load for EV PCS (kW)", "Upstream Infrastructure Cost as per DISCOM (INR Lakhs)", "EVSE Cost (INR Lakhs)", "Total Project cost (INR Lakhs)", "Subsidy requested for Upstream Infrastructure (INR Lakhs)", "Subsidy requested for EVSE (INR Lakhs)", "Total subsidy requested (INR Lakhs)"];
+    const rgCols = ["ReachGrid site id", "Station configuration", "Indicative area (m²)", `People newly within ${m.tauKm || 10} km`, "Priority score (0-100)", "Confidence", "Upstream cost basis", "Category note (nodal agency to confirm, FAQ 2)"];
+    const costVals = (p) => [p.ratingKw, p.upstream, r2(p.evse), r2(p.upstream + p.evse), p.subsidyUpstream, p.subsidyEvse, p.subsidy];
+    const rgVals = (x) => { const c = x.c, p = c.pm; return [c.id, `${p.archLabel}: ${p.chargers.map(l => `${l.n} × ${l.kw} kW ${l.conn}`).join(" + ") || "battery swapping"}`, p.area ? `${p.area[0]}-${p.area[1]}` : "", Math.round(c.raw ? c.raw.gap : 0), c.score != null ? +c.score.toFixed(1) : "", x.confidence || "", p.upstreamBasis, (c.site && c.site.note) || (p.category === "C" ? "not a Category A/B location type in OSM" : "")]; };
+    function annex(title, lead, rows) {
+      const nLead = lead.length, segStart = nLead, costStart = nLead + 9, rgStart = costStart + costCols.length;
+      const h1 = [...lead.map(t => ({ v: t })), { v: "Charging station configuration" }, ...Array(8).fill(null), ...costCols.map(t => ({ v: t })), { v: "ReachGrid evidence (not part of the MHI form)" }, ...Array(rgCols.length - 1).fill(null)];
+      const h2 = [...Array(nLead).fill(null), ...SEG_COLS.flatMap(([, n]) => [{ v: n }, null, null]), ...Array(costCols.length).fill(null), ...rgCols.map(t => ({ v: t }))];
+      const h3 = [...Array(nLead).fill(null), ...SEG_COLS.flatMap(() => [{ v: "Connector Type" }, { v: "Charger rating (In kW)" }, { v: "No. of chargers" }]), ...Array(costCols.length).fill(null), ...Array(rgCols.length).fill(null)];
+      const C = (i) => String.fromCharCode(65 + i).replace(/^/, "");
+      const col = (i) => { let s = ""; i++; while (i > 0) { const k = (i - 1) % 26; s = String.fromCharCode(65 + k) + s; i = Math.floor((i - 1) / 26); } return s; };
+      const merges = [...lead.map((_, i) => `${col(i)}1:${col(i)}3`), `${col(segStart)}1:${col(segStart + 8)}1`, ...[0, 1, 2].map(k => `${col(segStart + 3 * k)}2:${col(segStart + 3 * k + 2)}2`),
+        ...costCols.map((_, i) => `${col(costStart + i)}1:${col(costStart + i)}3`), `${col(rgStart)}1:${col(rgStart + rgCols.length - 1)}1`, ...rgCols.map((_, i) => `${col(rgStart + i)}2:${col(rgStart + i)}3`)];
+      void C;
+      const tot = rows.reduce((a, r) => { costCols.forEach((_, i) => { const v = r[costStart + i]; a[i] += typeof v === "number" ? v : 0; }); return a; }, costCols.map(() => 0));
+      const totalRow = [{ v: "Total", bold: true }, ...Array(costStart - 1).fill(null), ...tot.map((v, i) => ({ v: i === 0 ? Math.round(v) : r2(v), bold: true }))];
+      return { name: title, header: 3, rows: [h1, h2, h3, ...rows, ...(rows.length ? [totalRow] : [])], merges, widths: [...lead.map((t) => Math.max(10, Math.min(28, t.length + 2))), ...Array(9).fill(11), ...costCols.map(() => 14), 10, 34, 10, 12, 10, 11, 42, 34] };
+    }
+    const order = { A: 0, B: 1, C: 2, D: 3 };
+    const sortCat = (a, b) => order[a.c.pm.category] - order[b.c.pm.category] || (a.state || "").localeCompare(b.state || "") || (a.city || "").localeCompare(b.city || "");
+    const cities = pcs.filter(x => !isHw(x)).sort(sortCat).map(x => [x.c.pm.category, x.state, x.city, x.location, m.mode, +x.c.lat.toFixed(6), +x.c.lng.toFixed(6), ...chargerCells(x.c.pm), ...costVals(x.c.pm), ...rgVals(x)]);
+    const hws = pcs.filter(isHw).sort(sortCat).map(x => [x.c.pm.category, x.state, (x.highway && x.highway.no) || "", (x.highway && x.highway.from) || "", (x.highway && x.highway.to) || "", (x.highway && x.highway.milestone) || x.location, m.mode, +x.c.lat.toFixed(6), +x.c.lng.toFixed(6), ...chargerCells(x.c.pm), ...costVals(x.c.pm), ...rgVals(x)]);
+    const sheetC = annex("Annexure C - Cities", ["Category", "State", "City", "Location", "Mode of implementation", "Latitude", "Longitude"], cities);
+    const sheetD = annex("Annexure D - Highways", ["Category", "State", "Highway / Expressway No.", "From", "To", "Location / Milestone", "Mode of implementation", "Latitude", "Longitude"], hws);
+    // Annexure B summary
+    const sum = summarise(sites.map(x => x.c)), pcsSum = summarise(pcs.map(x => x.c));
+    const B = [[{ v: "Annexure B: Summary of EV Public Charging Stations", bold: true }], [],
+      ["Name of entity (GoI Ministry / State / UT / CPSE)", m.entity], ["Nodal Agency(ies) for EV PCS Implementation", m.nodal],
+      ["Stage of Submission (Proposal / First tranche / Second Tranche)", m.stage], ["Date of submission on the portal", m.date],
+      ["Number of EV PCSs", pcs.length], [],
+      [{ v: "No. of EV Chargers", bold: true }, { v: "Total", bold: true }], ["I. e-2Ws / e-3Ws", pcsSum.chargers.e2w3w], ["II. e-4Ws", pcsSum.chargers.e4w], ["III. e-buses / e-trucks", pcsSum.chargers.bus],
+      ["Total", pcsSum.chargers.e2w3w + pcsSum.chargers.e4w + pcsSum.chargers.bus], [],
+      [{ v: "Amount of Subsidy Requested", bold: true }, { v: "Total", bold: true }], ["I. Category A (INR Lakhs)", pcsSum.byCat.A], ["II. Category B (INR Lakhs)", pcsSum.byCat.B], ["III. Category C (INR Lakhs)", pcsSum.byCat.C],
+      ["Total (INR Lakhs)", r2(pcsSum.byCat.A + pcsSum.byCat.B + pcsSum.byCat.C)], [],
+      ["Category A share of requested subsidy (FAQ 1: preferably ≤ 20%)", `${(pcsSum.catAShare * 100).toFixed(1)}% ${pcsSum.catAOk ? "(within)" : "(ABOVE the 20% guidance)"}`],
+      ["Battery swapping / charging stations (Annexures K-M)", bss.length ? `${bss.length} stations, subsidy ${r2(sum.byCat.D)} INR Lakhs` : "none"]];
+    const sheets = [{ name: "Annexure B - Summary", rows: B, widths: [62, 40] }, sheetC, sheetD];
+    if (bss.length) {
+      const rowsL = bss.sort(sortCat).map(x => { const p = x.c.pm; return [x.state, x.city, x.location, m.mode, +x.c.lat.toFixed(6), +x.c.lng.toFixed(6), p.ratingKw, p.upstream, p.subsidyUpstream, x.c.id]; });
+      sheets.push({ name: "Annexure L-M - BSS", header: 1, rows: [["State", "City / Highway", "Location", "Mode of implementation", "Latitude", "Longitude", "Connected load (kW)", "Upstream Infrastructure Cost (INR Lakhs)", "Subsidy requested for Upstream Infrastructure, 80% (INR Lakhs)", "ReachGrid site id"].map(v => ({ v })), ...rowsL], widths: [14, 18, 30, 16, 11, 11, 12, 16, 18, 12] });
+    }
+    sheets.push({ name: "Notes and sources", rows: [
+      [{ v: "Generated by ReachGrid India", bold: true }], ["Scenario", m.scenario || ""], ["Region", m.region || ""], ["Data build", m.build || ""], [],
+      [{ v: "Rules applied", bold: true }],
+      ["Location categories and subsidy %", `${SOURCES.og}, Table 2: A 100% upstream + 100% EVSE; B 80% + 70%; C 80% upstream; D (BSS/BCS) 80% upstream`],
+      ["Subsidy base", "Percentage of the lower of benchmark and actual cost, excluding GST and refundable deposits (Guidelines §6; FAQ 6c)"],
+      ["EVSE benchmarks (incl. GST)", `${SOURCES.faq}: 12 kW 1.60, 60 kW 3.40, 120 kW 5.00, 240 kW 8.00, 360 kW 12.50 INR Lakhs; converted ex-GST at the GST rate set in ReachGrid`],
+      ["Upstream", "Subsidy on the DISCOM demand note (FAQ 6b). Until demand notes are received ReachGrid estimates upstream from the BEE Aug 2022 benchmark by station rating (Guidelines Table 3) plus HT extension to the nearest substation: replace with demand notes before submission."],
+      ["Station configurations", `${SOURCES.draft}, section 4 (indicative). States may modify them (draft note).`],
+      ["Category A share", "FAQ 1: Category A should preferably not exceed 20% of the total requested subsidy."],
+      ["Costs", "All costs exclude GST (Annexure C/D note 3)."],
+      ["Coordinates", "Latitude/longitude are mandatory for subsidy disbursement (Annexure C/D note 1)."],
+      ["Feasibility study", "FAQ 4: submit the feasibility study report (basis of location selection, configurations, charger ratings) with the proposal. ReachGrid exports it separately."],
+    ], widths: [34, 120] });
+    return sheets;
+  }
+
+  const API = { SOURCES, proposalSheets, CATEGORIES, CAT_A_SHARE_LIMIT, EVSE_BENCHMARK_LAKH, UPSTREAM_BENCHMARK_LAKH, CHARGER, ARCHETYPES, DEFAULTS, QUEUE_DEFAULTS, SCURVE_DEFAULTS,
     upstreamBenchmark, ratingKw, categoryOf, archetypeOf, costSite, applyToCandidates, summarise, erlangC, mmc, chargersFor, siteQueue, logisticFit, scurveForecast };
   if (isNode) module.exports = API; else root.RGPMEDrive = API;
 })(typeof self !== "undefined" ? self : this);

@@ -47,13 +47,30 @@
         siteCost: { ...D.siteCost, ...(cm.site_cost_lakh || {}) },
         commercial: { ...D.commercial, ...(b.commercial || {}) },
         weights: Object.fromEntries(Object.entries(weights).map(([k, v]) => [k, +v])),
+        pm: pmOpts(b.pm_edrive),
       };
+    }
+    /** PM E-DRIVE costing options (on by default when the module is loaded) */
+    function pmOpts(p) {
+      const PM = G.RGPMEDrive; if (!PM) return null;
+      const q = p || {};
+      if (q.enabled === false) return null;
+      const basis = q.budget_basis || "total";
+      if (!["total", "subsidy", "net"].includes(basis)) throw new HttpError(400, "pm_edrive.budget_basis must be total, subsidy or net");
+      return { ...PM.DEFAULTS, budgetBasis: basis, preferSwap: !!q.prefer_swap, capACatA: q.cap_category_a !== false };
+    }
+    function pmSite(c) {
+      const p = c.pm; if (!p) return null;
+      return { category: p.category, category_basis: G.RGPMEDrive.CATEGORIES[p.category].label, station_type: p.arch, configuration: p.chargers.map(l => ({ connector: l.conn, standard: G.RGPMEDrive.CHARGER[l.kw].std, rating_kw: l.kw, count: l.n, segment: l.seg })),
+        connected_load_kw: p.ratingKw, indicative_area_m2: p.area, upstream_lakh: p.upstream, upstream_basis: p.upstreamBasis, evse_lakh: p.evse, other_lakh: p.other, total_project_lakh: p.total,
+        subsidy_upstream_lakh: p.subsidyUpstream, subsidy_evse_lakh: p.subsidyEvse, subsidy_total_lakh: p.subsidy, net_after_subsidy_lakh: p.net, location_type: c.site ? c.site.type : c.host };
     }
     function warnings(ctx, sites, geo) {
       const w = [];
       if (ctx.censusFlag === "imputed") w.push("Demand uses Census 2011 totals apportioned to post-2011 district boundaries (imputed).");
       w.push("Demand is Census 2011 population; growth since 2011 is not modelled.");
-      if (!/uploaded/.test(ctx.pressureSource)) w.push("EV pressure uses Census 2011 vehicle ownership as a proxy, not EV registrations.");
+      if (/Census/.test(ctx.pressureSource)) w.push("EV pressure uses Census 2011 vehicle ownership as a proxy, not EV registrations.");
+      else if (/VAHAN/.test(ctx.pressureSource)) w.push("EV pressure uses VAHAN registrations by RTO (2022 onward) matched to districts; the segment split is modelled and validated.");
       w.push(ctx.metric === "network" ? "Distances are routed on a coarse 1:10m highway graph." : "Distances are straight-line × detour factor, not routed.");
       const unk = sites.filter(c => c.missing && c.missing.includes("feasibility")).length;
       if (unk) w.push(`${unk} selected site(s) have unknown host feasibility; their scores were renormalised.`);
@@ -110,7 +127,7 @@
           const profile = body.objective_profile || "coverage";
           if (!PROFILES[profile]) throw new HttpError(400, `objective_profile must be one of ${Object.keys(PROFILES).join(", ")}`);
           const opts = buildOpts(body);
-          const inputs = { geography_id: geo.id, distance_metric: opts.metric, threshold_km: opts.tauKm, detour: opts.detour, budget_lakh: opts.budgetLakh, cost_model: { hardware: opts.hardware, hardware_cost_lakh: opts.hardwareCost, site_cost_lakh: opts.siteCost }, objective_profile: profile, score_weights: opts.weights, charger_filter: opts.chargerFilter, include_sensitivity: !!body.include_sensitivity };
+          const inputs = { geography_id: geo.id, distance_metric: opts.metric, threshold_km: opts.tauKm, detour: opts.detour, budget_lakh: opts.budgetLakh, cost_model: opts.pm ? { model: "pm_edrive", budget_basis: opts.pm.budgetBasis, prefer_swap: opts.pm.preferSwap, cap_category_a: opts.pm.capACatA } : { hardware: opts.hardware, hardware_cost_lakh: opts.hardwareCost, site_cost_lakh: opts.siteCost }, objective_profile: profile, score_weights: opts.weights, charger_filter: opts.chargerFilter, include_sensitivity: !!body.include_sensitivity };
           const id = "scn_" + fnv(JSON.stringify([india.version, inputs]));
           const existing = await getScenario(id);
           if (existing && !(body.include_sensitivity && !existing.sensitivity)) return json({ ...summary(existing), reused: true, note: "Identical inputs and data build: returning the stored scenario (reproducible by construction)." }, 200, { Location: `${API}/scenarios/${id}` });
@@ -127,7 +144,9 @@
             baseline_metrics: { weighted_coverage: ctx.base.coverage, covered_population: Math.round(ctx.base.covered), population: Math.round(ctx.base.total), mean_distance_km: ctx.base.meanDist },
             proposed_metrics: { weighted_coverage: plan.metrics.coverage, newly_covered_population: Math.round(plan.metrics.newlyCovered), coverage_gain: plan.metrics.coverage - ctx.base.coverage, mean_distance_km: plan.metrics.meanDist, cost_lakh: plan.metrics.cost, sites: plan.metrics.sites, cost_per_newly_covered_person_rs: plan.metrics.costPerPerson, worst_served_reached: plan.metrics.worstServed, equity_gap: plan.metrics.equityGap },
             comparison: Object.fromEntries(Object.entries(plans).map(([k, p]) => [k, { name: p.name, coverage: p.metrics.coverage, cost_lakh: p.metrics.cost, sites: p.metrics.sites, newly_covered_population: Math.round(p.metrics.newlyCovered) }])),
-            selected_sites: plan.selected.map((c, i) => ({ rank: i + 1, id: c.id, label: c.label, host: c.host, lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5), cost_lakh: c.cost, score: +c.score.toFixed(2), score_decomposition: c.comp, unknown_components: c.missing, marginal_gain: plan.steps[i] ? plan.steps[i].gain : null, confidence: G.RGEngine.confidenceFor(c, ctx).grade })),
+            selected_sites: plan.selected.map((c, i) => ({ rank: i + 1, id: c.id, label: c.label, host: c.host, lat: +c.lat.toFixed(5), lng: +c.lng.toFixed(5), cost_lakh: c.cost, score: +c.score.toFixed(2), score_decomposition: c.comp, unknown_components: c.missing, marginal_gain: plan.steps[i] ? plan.steps[i].gain : null, confidence: G.RGEngine.confidenceFor(c, ctx).grade, pm_edrive: pmSite(c) })),
+            pm_edrive: opts.pm ? (() => { const sm = G.RGPMEDrive.summarise(plan.selected); return { rules: G.RGPMEDrive.SOURCES, summary: { ev_pcs: sm.sites, chargers: sm.chargers, project_cost_lakh: sm.total, subsidy_by_category_lakh: sm.byCat, subsidy_total_lakh: sm.subsidy, net_after_subsidy_lakh: sm.net, category_a_share: sm.catAShare, category_a_within_20pct: sm.catAOk } }; })() : null,
+            optimality: plan.guarantee ? { guaranteed_fraction_of_optimum: plan.guarantee.bound, basis: plan.guarantee.basis } : null,
             assumptions: { ...inputs, demand: "Census 2011 population on derived hex cells", pressure: ctx.pressureSource, candidates: cands.length },
             confidence_warnings: warnings(ctx, plan.selected, geo),
             provenance: india.sources.map(s => ({ id: s.id, title: s.title, licence: s.licence, sha256: s.sha256 || null, kind: s.kind })),
@@ -136,6 +155,10 @@
           };
           await putScenario(rec);
           return json(summary(rec), 201, { Location: `${API}/scenarios/${id}` });
+        }
+        if ((mm = path.match(/^\/scenarios\/(scn_[0-9a-f]{8})\/ubec$/)) && m === "GET") {
+          const rec = await getScenario(mm[1]); if (!rec) throw new HttpError(404, "scenario not found");
+          return json(ubecExport(rec));
         }
         if ((mm = path.match(/^\/scenarios\/(scn_[0-9a-f]{8})$/))) {
           if (m === "GET") { const rec = await getScenario(mm[1]); if (!rec) throw new HttpError(404, "scenario not found"); return json(rec); }
@@ -147,13 +170,32 @@
         return json({ error: { status, message: e.message, detail: e.detail || null } }, status);
       }
     }
+    /** planned stations in the shape Unified Bharat E-Charge onboarding needs (Operational Guidelines Step 3(iii), FAQ 12:
+     *  location, availability status, pricing, digital payment options). Connector standards are mapped to OCPI 2.2.1 where an
+     *  equivalent exists; the UBEC protocol is not yet published, so this is a pre-filled draft for the implementing agency. */
+    function ubecExport(rec) {
+      const OCPI = { "CCS-II": "IEC_62196_T2_COMBO" };
+      return {
+        format: "reachgrid-ubec-draft-v1", note: "Planned stations for onboarding to Unified Bharat E-Charge after commissioning. Pricing and payment options are set by the operator (CPO).",
+        scenario_id: rec.scenario_id, data_build: rec.data_build, geography: rec.geography, generated_at: new Date().toISOString(),
+        locations: rec.selected_sites.map(s => ({
+          id: `${rec.scenario_id}-${String(s.rank).padStart(3, "0")}`, name: s.label, coordinates: { latitude: s.lat.toFixed(6), longitude: s.lng.toFixed(6) },
+          country: "IND", region: rec.geography.name, availability_status: "PLANNED", pricing: null, payment_options: null,
+          pm_edrive_category: s.pm_edrive ? s.pm_edrive.category : null,
+          evses: (s.pm_edrive ? s.pm_edrive.configuration : []).flatMap((l, j) => Array.from({ length: l.count }, (_, k) => ({
+            uid: `${rec.scenario_id}-${String(s.rank).padStart(3, "0")}-${j + 1}${String.fromCharCode(65 + k)}`, status: "PLANNED",
+            connectors: [{ id: "1", standard_bis: l.standard, standard_ocpi: OCPI[l.connector] || null, power_type: "DC", max_electric_power_w: l.rating_kw * 1000, vehicle_segment: l.segment }],
+          }))),
+        })),
+      };
+    }
     function summary(r) {
       return { scenario_id: r.scenario_id, selected_candidate_ids: r.selected_candidate_ids, baseline_metrics: r.baseline_metrics, proposed_metrics: r.proposed_metrics, assumptions: r.assumptions, confidence_warnings: r.confidence_warnings, links: { self: `${API}/scenarios/${r.scenario_id}` } };
     }
     function dataInfo(india) { return { build: india.version, built: india.built, sources: india.sources.map(s => ({ id: s.id, observed: s.observed, retrieved: s.retrieved, licence: s.licence })) }; }
     function index() {
       return { name: "ReachGrid India API", version: VERSION, transport: env.transport || "service worker", docs: env.docs || SCOPE + "api.html", openapi: `${API}/openapi.json`,
-        endpoints: [`GET ${API}/geographies`, `GET ${API}/geographies/{id}/baseline`, `POST ${API}/scenarios`, `GET ${API}/scenarios`, `GET ${API}/scenarios/{id}`, `DELETE ${API}/scenarios/{id}`] };
+        endpoints: [`GET ${API}/geographies`, `GET ${API}/geographies/{id}/baseline`, `POST ${API}/scenarios`, `GET ${API}/scenarios`, `GET ${API}/scenarios/{id}`, `GET ${API}/scenarios/{id}/ubec`, `DELETE ${API}/scenarios/{id}`] };
     }
     function openapi() {
       const geoParam = { name: "id", in: "path", required: true, schema: { type: "string" }, example: "jharkhand.east-singhbhum" };
@@ -169,9 +211,11 @@
             post: { summary: "Run a scenario", requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["geography_id"], properties: {
               geography_id: { type: "string" }, distance_metric: { enum: ["straight", "network"] }, threshold_km: { type: "number" }, detour: { type: "number" }, budget_lakh: { type: "number" },
               cost_model: { type: "object", properties: { hardware: { enum: ["dc60", "dc30", "ac22"] }, hardware_cost_lakh: { type: "object" }, site_cost_lakh: { type: "object" } } },
-              objective_profile: { enum: Object.keys(PROFILES) }, score_weights: { type: "object" }, charger_filter: { enum: ["all", "dc", "verified"] }, include_sensitivity: { type: "boolean" } } } } } },
+              objective_profile: { enum: Object.keys(PROFILES) }, score_weights: { type: "object" }, charger_filter: { enum: ["all", "dc", "verified"] }, include_sensitivity: { type: "boolean" },
+              pm_edrive: { type: "object", description: "PM E-DRIVE costing (default on): categories A-D, BEE benchmarks, subsidy", properties: { enabled: { type: "boolean" }, budget_basis: { enum: ["total", "subsidy", "net"] }, prefer_swap: { type: "boolean" }, cap_category_a: { type: "boolean" } } } } } } } },
               responses: { 201: { description: "scenario_id, selected_candidate_ids, baseline_metrics, proposed_metrics, assumptions, confidence_warnings" }, 200: { description: "Identical scenario already stored" }, 400: { description: "Invalid input" } } },
           },
+          "/scenarios/{id}/ubec": { get: { summary: "Planned stations pre-filled for Unified Bharat E-Charge onboarding (location, status, pricing, payment options; OCPI 2.2.1 connector standards where they exist)", parameters: [{ ...geoParam, example: "scn_0123abcd" }], responses: { 200: { description: "Draft onboarding records" }, 404: { description: "Not found" } } } },
           "/scenarios/{id}": { get: { summary: "Stored inputs, selected sites, score decomposition, coverage deltas, sensitivity, provenance", parameters: [{ ...geoParam, example: "scn_0123abcd" }], responses: { 200: { description: "Scenario" }, 404: { description: "Not found" } } }, delete: { summary: "Delete a stored scenario", responses: { 204: { description: "Deleted" } } } },
         },
       };

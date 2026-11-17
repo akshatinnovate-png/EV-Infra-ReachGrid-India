@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("RGDesktop", {
   saveFile: (name, content, opts) => ipcRenderer.invoke("file:save", name, content, opts),
   openFile: (accept) => ipcRenderer.invoke("file:open", accept),
   pdfReport: (name) => ipcRenderer.invoke("pdf:report", name),
+  pdfHtml: (html, name) => ipcRenderer.invoke("pdf:html", html, name),
   saveProject: () => ipcRenderer.invoke("project:save"),
   openProject: (mode) => ipcRenderer.invoke("project:open", mode),
   checkData: () => ipcRenderer.invoke("data:check"),

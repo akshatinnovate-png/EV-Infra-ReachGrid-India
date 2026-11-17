@@ -159,6 +159,20 @@ function registerIPC() {
     if (fs.statSync(f).size > 50e6) return { error: "File larger than 50 MB" };
     return { name: path.basename(f), text: fs.readFileSync(f, "utf8") };
   });
+  /** a generated HTML report (e.g. the feasibility study) rendered to PDF in a hidden, script-free window */
+  ipcMain.handle("pdf:html", async (e, html, name) => {
+    const owner = BrowserWindow.fromWebContents(e.sender);
+    const w = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true } });
+    try {
+      await w.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(String(html)));
+      const pdf = await w.webContents.printToPDF({ printBackground: true, pageSize: "A4", margins: { marginType: "default" } });
+      if (SMOKE) return { ok: true, bytes: pdf.length };
+      const r = await dialog.showSaveDialog(owner, { defaultPath: path.join(app.getPath("documents"), name || "reachgrid-report.pdf"), filters: [{ name: "PDF", extensions: ["pdf"] }] });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+      fs.writeFileSync(r.filePath, pdf); gov.auditAdd("export.pdf", path.basename(r.filePath)); shell.openPath(r.filePath);
+      return { ok: true, path: r.filePath, bytes: pdf.length };
+    } finally { w.destroy(); }
+  });
   ipcMain.handle("pdf:report", async (e, name) => {
     const w = BrowserWindow.fromWebContents(e.sender);
     const pdf = await w.webContents.printToPDF({ printBackground: true, landscape: true, pageSize: "A4", margins: { marginType: "default" } });
@@ -236,6 +250,15 @@ async function runSmoke() {
     const base = await get("/api/v1/geographies/jharkhand.east-singhbhum/baseline", { "X-API-Key": key }); ok("API baseline", base.status === 200 && JSON.parse(base.body).baseline_metrics.weighted_coverage > 0, base.status);
     const denied = await post("/api/v1/scenarios", { geography_id: "maharashtra.pune" }, { "X-API-Key": key }); ok("API key writes blocked by default", denied.status === 403, denied.status);
     const created = await post("/api/v1/scenarios", { geography_id: "maharashtra.pune", budget_lakh: 300 }, { "X-Session-Token": gov.session().token }); ok("API scenario via session", created.status === 201 || created.status === 200, created.status + " " + created.body.slice(0, 80));
+    {
+      const cb = (() => { try { return JSON.parse(created.body); } catch { return {}; } })();
+      const full = cb.scenario_id ? await get(`/api/v1/scenarios/${cb.scenario_id}`, { "X-Session-Token": gov.session().token }) : { status: 0, body: "{}" };
+      const rec = (() => { try { return JSON.parse(full.body); } catch { return {}; } })();
+      ok("API scenario carries PM E-DRIVE costing + optimality", rec.pm_edrive && rec.pm_edrive.summary.ev_pcs > 0 && rec.selected_sites.every(x => x.pm_edrive && x.pm_edrive.subsidy_total_lakh >= 0) && rec.optimality, rec.pm_edrive && JSON.stringify(rec.pm_edrive.summary).slice(0, 160));
+      const ub = cb.scenario_id ? await get(`/api/v1/scenarios/${cb.scenario_id}/ubec`, { "X-API-Key": key }) : { status: 0, body: "{}" };
+      const u = (() => { try { return JSON.parse(ub.body); } catch { return {}; } })();
+      ok("API Unified Bharat E-Charge export", ub.status === 200 && u.locations && u.locations.length > 0 && u.locations[0].evses.length > 0 && u.locations[0].availability_status === "PLANNED", ub.status + " " + (u.locations ? u.locations.length + " locations" : ""));
+    }
     ok("audit chain verifies", gov.auditVerify().ok, JSON.stringify(gov.auditVerify()));
     const pdf = await w.webContents.printToPDF({ printBackground: true, landscape: true }); ok("PDF report renders", pdf.length > 20000, pdf.length + " bytes");
     if (process.env.REACHGRID_SMOKE_NETWORK) {
