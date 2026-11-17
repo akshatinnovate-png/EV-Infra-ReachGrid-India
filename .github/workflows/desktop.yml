@@ -10,6 +10,7 @@ on:
   workflow_run:
     workflows: ["Refresh data"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:

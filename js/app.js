@@ -2193,7 +2193,7 @@
       } else {
         const t = await DESK.teamStatus();
         body.innerHTML = `<div class="hdr"><span>Share this workspace on your network</span><span class="sub">team server</span></div>
-          <p class="sub" style="margin-top:0">Colleagues with ReachGrid on the same office network join this workspace and work on the same evidence, portfolio, reviews and scenarios, each with their own account and role. Requires sign-in with passwords; traffic is plain HTTP, so use it on a trusted network.</p>
+          <p class="sub" style="margin-top:0">Colleagues with ReachGrid on the same office network join this workspace and work on the same evidence, portfolio, reviews and scenarios, each with their own account and role. Requires sign-in with passwords; traffic is plain HTTP, so use it on a trusted network. The first time, Windows asks whether ReachGrid may use the network: allow it on private networks.</p>
           ${t.running ? `<div class="kpis"><div class="kpi"><b style="color:var(--good)">Sharing</b><span>port ${t.port}</span></div><div class="kpi"><b>${(t.sessions || []).length}</b><span>colleagues signed in</span></div></div>
             <div class="sub">Give colleagues this address (Settings → Team → Join):</div>${(t.urls || []).map(x => `<pre class="out" style="margin:4px 0">${esc(x)}</pre>`).join("")}
             ${(t.sessions || []).length ? `<table class="t"><thead><tr><th>User</th><th>From</th><th>Since</th></tr></thead><tbody>${t.sessions.map(x => `<tr><td>${esc(x.user)}</td><td class="mono">${esc(x.ip)}</td><td>${esc(x.since.slice(11, 16))}</td></tr>`).join("")}</tbody></table>` : ""}
