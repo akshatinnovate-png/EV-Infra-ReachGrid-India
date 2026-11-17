@@ -141,7 +141,7 @@ jobs:
           Download **ReachGrid-India-Setup.exe**, run it, and the app opens: no admin rights, no setup.
           Windows may say "Windows protected your PC" because the installer is not code-signed yet: choose More info → Run anyway.
 
-          Verified on Windows by the build pipeline: $(@($smoke.results).Count) checks passed on the installed app (workspace, every tab, background jobs, local API with key enforcement, role enforcement, audit chain, PDF export, corridor routing, tiles, data update), plus silent install, shortcuts and uninstall.
+          Verified on Windows by the build pipeline: $(@($smoke.results).Count) checks passed on the installed app (workspace and every tab, PM E-DRIVE costing and Annexure B/C/D workbook, feasibility report PDF, queueing and S-curve, freight corridor plan, live challenge, local API and Unified Bharat E-Charge export, team server with remote roles and audit, role enforcement, audit chain), plus a networked run with street maps, routing, data update and in-app data rebuild, silent install, shortcuts and uninstall.
 
           Data build: $(Select-String -Path data/india.js -Pattern 'data build (\d{4}\.\d{2}\.\d{2}-[0-9a-f]+)' | ForEach-Object { $_.Matches[0].Groups[1].Value })
           Commit: $env:GITHUB_SHA

@@ -30,7 +30,7 @@
       {
         "from": "..",
         "to": "web",
-        "filter": ["app.html", "api.html", "methodology.html", "business.html", "desktop-logo.png", "css/**", "js/**", "data/**", "media/**", "vendor/**"]
+        "filter": ["app.html", "api.html", "methodology.html", "business.html", "case-study.html", "desktop-logo.png", "css/**", "js/**", "data/**", "media/**", "vendor/**"]
       }
     ],
     "win": {

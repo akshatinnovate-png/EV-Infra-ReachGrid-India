@@ -275,7 +275,9 @@ function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch,
       catch (e) { lastErr = e; }
     }
     if (!buf) throw lastErr || new Error("Overpass unavailable");
-    const els = JSON.parse(buf.toString("utf8")).elements || [];
+    const resp = JSON.parse(buf.toString("utf8"));
+    if (/error|timed out|out of memory/i.test(resp.remark || "")) throw new Error("Overpass returned a truncated result (" + String(resp.remark).slice(0, 80) + "); nothing changed");
+    const els = resp.elements || [];
     const pts = [];
     for (const e of els) { const lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon; if (lat == null) continue; const v = String((e.tags || {}).voltage || "").split(";")[0]; pts.push(Math.round(lat * 1e4), Math.round(lon * 1e4), /^\d+$/.test(v) ? Math.round(+v / 1000) : 0); }
     if (pts.length / 3 < 1000) throw new Error(`only ${pts.length / 3} substations returned`);
