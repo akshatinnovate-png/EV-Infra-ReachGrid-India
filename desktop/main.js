@@ -21,28 +21,42 @@ const logFile = () => path.join(app.getPath("userData"), "reachgrid.log");
 const log = (m) => { try { fs.appendFileSync(logFile(), `[${new Date().toISOString()}] ${m}\n`); } catch { } };
 
 function appURL(page = "app.html", query = "app=1&desktop=1") { return `http://127.0.0.1:${port}/${page}${query ? "?" + query : ""}`; }
+/* team client: this computer can open a colleague's shared workspace instead of its own */
+const clientFile = () => path.join(app.getPath("userData"), "client.json");
+const clientCfg = () => { try { return JSON.parse(fs.readFileSync(clientFile(), "utf8")); } catch { return {}; } };
+const teamOrigin = () => { const t = clientCfg().teamUrl; try { return t ? new URL(t).origin : null; } catch { return null; } };
+const webPrefs = () => ({ preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true, additionalArguments: [`--rg-local-origin=http://127.0.0.1:${port}`] });
+function startURL() { const t = teamOrigin(); return t && !SMOKE ? `${t}/app.html?app=1&desktop=1&team=1` : appURL(); }
 
 function createMainWindow() {
   mainWin = new BrowserWindow({
     width: 1480, height: 920, minWidth: 980, minHeight: 640, show: false, backgroundColor: "#eceae6",
     title: "ReachGrid India", icon: ICON, autoHideMenuBar: false,
-    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: webPrefs(),
   });
   wireWindow(mainWin);
   mainWin.once("ready-to-show", () => { if (!SMOKE) { mainWin.maximize(); mainWin.show(); } });
   mainWin.on("closed", () => { mainWin = null; });
-  mainWin.loadURL(appURL());
+  const first = startURL();
+  mainWin.webContents.on("did-fail-load", (e, code, desc, url, isMain) => {
+    if (isMain && teamOrigin() && url.startsWith(teamOrigin())) {
+      log(`team server unreachable (${desc}); opening this computer's workspace`);
+      dialog.showMessageBox(mainWin, { type: "warning", message: "The team server is not reachable", detail: `${teamOrigin()} did not answer (${desc}). Opening this computer's own workspace; reconnect from Settings → Team.` });
+      mainWin.loadURL(appURL());
+    }
+  });
+  mainWin.loadURL(first);
   return mainWin;
 }
 function openDoc(page, title) {
   if (docWins.has(page) && !docWins.get(page).isDestroyed()) { docWins.get(page).focus(); return; }
   const w = new BrowserWindow({ width: 1100, height: 860, title: `${title} · ReachGrid India`, icon: ICON, backgroundColor: "#ffffff", autoHideMenuBar: true,
-    webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true, nodeIntegration: false, sandbox: true } });
+    webPreferences: webPrefs() });
   wireWindow(w); w.loadURL(appURL(page, "desktop=1")); docWins.set(page, w);
 }
 /** keep every window inside the app: local pages open as app windows, the web opens in the system browser */
 function wireWindow(w) {
-  const local = (url) => url.startsWith(`http://127.0.0.1:${port}/`);
+  const local = (url) => url.startsWith(`http://127.0.0.1:${port}/`) || (teamOrigin() && url.startsWith(teamOrigin() + "/"));
   w.webContents.setWindowOpenHandler(({ url }) => {
     if (local(url)) { const page = new URL(url).pathname.replace(/^\//, "") || "app.html"; openDoc(page, page.replace(".html", "")); return { action: "deny" }; }
     if (/^https?:|^mailto:/.test(url)) shell.openExternal(url);
@@ -159,6 +173,43 @@ function registerIPC() {
     if (fs.statSync(f).size > 50e6) return { error: "File larger than 50 MB" };
     return { name: path.basename(f), text: fs.readFileSync(f, "utf8") };
   });
+  ipcMain.handle("data:rebuild", async (e, parts) => {
+    if (!gov.can("settings")) return { ok: false, error: "Only an Admin can rebuild the data" };
+    try {
+      const r = await srv.rebuildData(parts, (part, msg) => { try { e.sender.send("rebuild:progress", part, msg); } catch { } });
+      gov.auditAdd("data.rebuild", `${(parts || []).join(",")} -> ${r.build}`); return r;
+    } catch (err) { gov.auditAdd("data.rebuild_failed", err.message); return { ok: false, error: err.message }; }
+  });
+  /* ---------- team server (share this workspace on the LAN) and team client (join one) ---------- */
+  ipcMain.handle("team:status", () => ({ ...srv.teamInfo(), enabled: !!gov.settings().teamServer, port: gov.settings().teamPort, requireSignIn: !!gov.settings().requireSignIn, client: clientCfg().teamUrl || null }));
+  ipcMain.handle("team:start", async () => {
+    if (!gov.can("settings")) return { ok: false, error: "Only an Admin can share the workspace" };
+    const r = gov.updateSettings({ teamServer: true }); if (!r.ok) return r;
+    try { const info = await srv.startTeam(gov.settings().teamPort); return { ok: true, ...info }; }
+    catch (e) { gov.updateSettings({ teamServer: false }); return { ok: false, error: e.code === "EADDRINUSE" ? `Port ${gov.settings().teamPort} is in use; choose another` : e.message }; }
+  });
+  ipcMain.handle("team:stop", async () => {
+    if (!gov.can("settings")) return { ok: false, error: "Only an Admin can stop sharing" };
+    await srv.stopTeam(); gov.updateSettings({ teamServer: false }); return { ok: true };
+  });
+  ipcMain.handle("team:join", async (e, url) => {
+    let u; try { u = new URL(String(url).trim()); } catch { return { ok: false, error: "Enter the address shown on the server, e.g. http://192.168.1.20:47800" }; }
+    if (!/^https?:$/.test(u.protocol)) return { ok: false, error: "Address must start with http:// or https://" };
+    try {
+      const r = await net.fetch(u.origin + "/team/info", { signal: AbortSignal.timeout(8000) });
+      const j = await r.json();
+      if (j.app !== "ReachGrid India") return { ok: false, error: "That address is not a ReachGrid team server" };
+      fs.writeFileSync(clientFile(), JSON.stringify({ teamUrl: u.origin, joined: new Date().toISOString() }));
+      gov.auditAdd("team.join", u.origin);
+      if (mainWin) mainWin.loadURL(`${u.origin}/app.html?app=1&desktop=1&team=1`);
+      return { ok: true, server: j.server, version: j.version, build: j.build };
+    } catch (err) { return { ok: false, error: `No answer from ${u.origin} (${err.message})` }; }
+  });
+  ipcMain.handle("team:leave", () => {
+    try { fs.unlinkSync(clientFile()); } catch { }
+    gov.auditAdd("team.leave", ""); if (mainWin) mainWin.loadURL(appURL()); return { ok: true };
+  });
+
   /** a generated HTML report (e.g. the feasibility study) rendered to PDF in a hidden, script-free window */
   ipcMain.handle("pdf:html", async (e, html, name) => {
     const owner = BrowserWindow.fromWebContents(e.sender);
@@ -259,6 +310,44 @@ async function runSmoke() {
       const u = (() => { try { return JSON.parse(ub.body); } catch { return {}; } })();
       ok("API Unified Bharat E-Charge export", ub.status === 200 && u.locations && u.locations.length > 0 && u.locations[0].evses.length > 0 && u.locations[0].availability_status === "PLANNED", ub.status + " " + (u.locations ? u.locations.length + " locations" : ""));
     }
+    {
+      // ---- team server: LAN listener, password-only remote sign-in, roles enforced on the server, client shim in a window
+      const tinfo = await srv.startTeam(0);
+      ok("team server starts on the network", tinfo.running && tinfo.port > 0 && tinfo.urls.length > 0, (tinfo.urls || []).join(" "));
+      const tb = `http://127.0.0.1:${tinfo.port}`;
+      const tf = async (method, p, body, token) => { const r = await fetch(tb + p, { method, headers: { "Content-Type": "application/json", "X-Session-Token": token || "" }, body: body === undefined ? undefined : JSON.stringify(body) }); let j = null; try { j = await r.json(); } catch { } return { status: r.status, j }; };
+      gov.saveUser({ id: "smoke-viewer", name: "Smoke viewer", role: "viewer", password: "pw-viewer-1" });
+      gov.saveUser({ id: "smoke-analyst", name: "Smoke analyst", role: "analyst", password: "pw-analyst-1" });
+      const inf = await tf("GET", "/team/info"); ok("team info", inf.status === 200 && inf.j.app === "ReachGrid India", inf.j && inf.j.server);
+      const anon = await tf("GET", "/team/store?key=evidence"); ok("team store needs sign-in", anon.status === 401, anon.status);
+      const nopw = await tf("POST", "/team/sign-in", { user: "owner", password: "" }); ok("password-less accounts cannot join remotely", nopw.status === 401, nopw.j && nopw.j.error);
+      const vw = await tf("POST", "/team/sign-in", { user: "smoke-viewer", password: "pw-viewer-1" });
+      const vt = vw.j && vw.j.session && vw.j.session.token;
+      const vput = await tf("PUT", "/team/store?key=evidence", { value: [{ lat: 1, lng: 1 }] }, vt);
+      ok("team: viewer cannot write evidence (enforced on server)", vw.status === 200 && vput.status === 403, `${vw.status}/${vput.status} ${vput.j && vput.j.error}`);
+      const an = await tf("POST", "/team/sign-in", { user: "smoke-analyst", password: "pw-analyst-1" });
+      const at = an.j && an.j.session && an.j.session.token;
+      const ev0 = gov.storeGet("evidence");
+      const aput = await tf("PUT", "/team/store?key=evidence", { value: [{ lat: "22.8", lng: "86.2", name: "team smoke", status: "ok" }] }, at);
+      await tf("POST", "/team/audit", { action: "evidence.import", detail: "team smoke" }, at);
+      const last = gov.auditList().slice(-1)[0];
+      ok("team: analyst writes shared evidence; audit names the remote user", aput.status === 200 && (gov.storeGet("evidence") || []).some(x => x.name === "team smoke") && last.user === "smoke-analyst", `${aput.status} · ${last.user} ${last.action}`);
+      gov.storeSet("evidence", ev0 || []);
+      ok("team: proxies closed to anonymous LAN callers", (await fetch(tb + "/proxy/osrm?coords=77,28;76,27")).status === 401, "");
+      // the client: a real app window on the team address uses the shim (RGDesktop from the server, files via RGLocal)
+      const cw = new BrowserWindow({ show: false, webPreferences: webPrefs() });
+      await cw.loadURL(`${tb}/app.html?app=1&desktop=1&team=1`);
+      await new Promise(r => setTimeout(r, 1500));
+      const cr = await cw.webContents.executeJavaScript(`(async () => { const D = window.RGDesktop; if (!D || !D.team) return { shim: false };
+        const s = await D.signIn("smoke-analyst", "pw-analyst-1"); return { shim: true, local: !!window.RGLocal, ok: s.ok, role: D.session() && D.session().role, store: Array.isArray(D.storeGet("evidence")) || D.storeGet("evidence") === null, hasTeamStart: typeof D.teamStart }; })()`);
+      ok("team client window: shim + local file bridge, sign-in, shared store", cr.shim && cr.local && cr.ok && cr.role === "analyst" && cr.store, JSON.stringify(cr));
+      cw.destroy();
+      let locked = 0; for (let i = 0; i < 6; i++) { const r = await tf("POST", "/team/sign-in", { user: "smoke-viewer", password: "wrong" }); if (r.status === 429) locked++; }
+      ok("team: repeated failures are rate-limited", locked >= 1, locked);
+      await srv.stopTeam();
+      gov.deleteUser("smoke-viewer"); gov.deleteUser("smoke-analyst");
+      ok("team server stops", !srv.teamInfo().running, "");
+    }
     ok("audit chain verifies", gov.auditVerify().ok, JSON.stringify(gov.auditVerify()));
     const pdf = await w.webContents.printToPDF({ printBackground: true, landscape: true }); ok("PDF report renders", pdf.length > 20000, pdf.length + " bytes");
     if (process.env.REACHGRID_SMOKE_NETWORK) {
@@ -274,6 +363,16 @@ async function runSmoke() {
       const dc = await srv.checkDataUpdate().catch(e => ({ error: e.message })); ok("network: data update check reaches published data", !dc.error && !!dc.remote, JSON.stringify(dc));
       const da = await srv.applyDataUpdate(null).catch(e => ({ error: e.message })); ok("network: data update downloads and applies", !da.error && da.files > 30, JSON.stringify(da));
       const reverted = srv.revertData(); ok("network: revert to bundled data", !!reverted, reverted);
+      // in-app rebuild from the sources (chargers + VAHAN by RTO); OSM is best effort (Overpass load varies)
+      {
+        const before = await get("/api/v1/geographies/jharkhand.east-singhbhum/baseline", { "X-API-Key": key });
+        const t0 = Date.now(); let rb = null;
+        try { rb = await srv.rebuildData(["chargers", "vahan"], () => {}); } catch (e) { rb = { ok: false, error: e.message }; }
+        ok("network: in-app rebuild (chargers + VAHAN by RTO)", rb && rb.ok && rb.report.chargers.chargers > 20000 && rb.report.vahan.districts > 600, rb && (rb.ok ? `${rb.build} · ${rb.report.chargers.chargers} chargers · VAHAN to ${rb.report.vahan.latest} · ${((Date.now() - t0) / 1000).toFixed(0)} s` : rb.error));
+        const after = await get("/api/v1/geographies/jharkhand.east-singhbhum/baseline", { "X-API-Key": key });
+        ok("network: rebuilt data serves the API", after.status === 200 && JSON.parse(after.body).data.build === (rb && rb.build), `${JSON.parse(before.body).data.build} -> ${JSON.parse(after.body).data.build}`);
+        srv.revertData();
+      }
       const os = await get("/proxy/osrm?coords=77.209,28.6139;75.7873,26.9124");
       let osOk = false; try { osOk = os.status === 200 && JSON.parse(os.body).routes[0].distance > 200000; } catch { }
       ok("network: OSRM street routing (best effort; app falls back to highway graph)", true, osOk ? "routed" : "unavailable " + os.status);
@@ -299,9 +398,10 @@ app.whenReady().then(async () => {
     const userDir = app.getPath("userData"); fs.mkdirSync(userDir, { recursive: true });
     gov = createGovernance(userDir);
     // Chromium's network stack: honours the system proxy, PAC files and the OS certificate store
-    srv = createServer({ appDir: APP_DIR, userDir, gov, log, fetchImpl: (url, opts) => net.fetch(url, opts) });
+    srv = createServer({ appDir: APP_DIR, userDir, gov, log, fetchImpl: (url, opts) => net.fetch(url, opts), appVersion: app.getVersion() });
     const wanted = gov.settings().apiPort || 0;
     try { port = await srv.listen(wanted); } catch { port = await srv.listen(0); }
+    if (gov.settings().teamServer && !SMOKE) srv.startTeam(gov.settings().teamPort).catch(e => log("team server not started: " + e.message));
     log(`started ${app.getVersion()} on port ${port}, app dir ${APP_DIR}`);
     registerIPC(); buildMenu(); createMainWindow();
     if (SMOKE) { gov.autoSignIn(); mainWin.webContents.once("did-finish-load", () => runSmoke()); }

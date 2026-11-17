@@ -2,8 +2,23 @@
 "use strict";
 const { contextBridge, ipcRenderer } = require("electron");
 
-const EVENTS = ["menu", "data:progress", "grid:progress", "tiles:progress"];
-contextBridge.exposeInMainWorld("RGDesktop", {
+const EVENTS = ["menu", "data:progress", "grid:progress", "tiles:progress", "rebuild:progress"];
+const LOCAL_ORIGIN = ((process.argv || []).find(a => a.startsWith("--rg-local-origin=")) || "").split("=")[1] || "";
+const isLocal = LOCAL_ORIGIN && location.origin === LOCAL_ORIGIN;
+// local-only helpers: also given to pages from a team server, so files and PDFs are saved on this computer
+contextBridge.exposeInMainWorld("RGLocal", {
+  saveFile: (name, content, opts) => ipcRenderer.invoke("file:save", name, content, opts),
+  openFile: (accept) => ipcRenderer.invoke("file:open", accept),
+  pdfReport: (name) => ipcRenderer.invoke("pdf:report", name),
+  pdfHtml: (html, name) => ipcRenderer.invoke("pdf:html", html, name),
+  secretSet: (k, v) => ipcRenderer.invoke("secret:set", k, v),
+  secretGet: (k) => ipcRenderer.invoke("secret:get", k),
+  openExternal: (url) => ipcRenderer.invoke("open:external", url),
+  checkAppUpdate: () => ipcRenderer.invoke("app:update"),
+  joinTeam: (url) => ipcRenderer.invoke("team:join", url),
+  leaveTeam: () => ipcRenderer.invoke("team:leave"),
+});
+if (isLocal) contextBridge.exposeInMainWorld("RGDesktop", {
   // synchronous workspace store (permission-checked in the main process)
   storeGet: (k) => ipcRenderer.sendSync("store:get", k),
   storeSet: (k, v) => ipcRenderer.sendSync("store:set", k, v),
@@ -44,5 +59,11 @@ contextBridge.exposeInMainWorld("RGDesktop", {
   openExternal: (url) => ipcRenderer.invoke("open:external", url),
   openUserData: () => ipcRenderer.invoke("open:userData"),
   checkAppUpdate: () => ipcRenderer.invoke("app:update"),
+  teamStatus: () => ipcRenderer.invoke("team:status"),
+  teamStart: () => ipcRenderer.invoke("team:start"),
+  teamStop: () => ipcRenderer.invoke("team:stop"),
+  joinTeam: (url) => ipcRenderer.invoke("team:join", url),
+  leaveTeam: () => ipcRenderer.invoke("team:leave"),
+  rebuildData: (parts) => ipcRenderer.invoke("data:rebuild", parts),
   on: (ch, cb) => { if (EVENTS.includes(ch)) ipcRenderer.on(ch, (e, ...a) => cb(...a)); },
 });

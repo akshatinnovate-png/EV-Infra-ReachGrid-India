@@ -35,6 +35,8 @@ The app runs as its own window (Electron), not in a browser. Your profile, proje
 | Native files | save/open dialogs, PDF reports (`printToPDF`), `.reachgrid` project files (merge evidence, portfolio, reviews and scenarios from colleagues) |
 | Secrets | the optional Claude API key is encrypted with Windows DPAPI (`safeStorage`) |
 | App windows | methodology, business model and API console open as app windows; external links open in the system browser |
+| Team server | Settings → Team: an Admin shares the workspace on the office network (port 47800 by default). Colleagues' ReachGrid apps join by address and sign in with their own account; evidence, portfolio, reviews and scenarios live on the server, roles are enforced there, and every action is audited under the remote user. Requires passwords; failed sign-ins are rate-limited; proxies are closed to anonymous callers. Plain HTTP: use on a trusted network |
+| In-app rebuild | Settings → Data & maps → Rebuild now: re-downloads the charger listings, VAHAN registrations by RTO and OpenStreetMap PM E-DRIVE locations, and rebuilds them with the pipeline's formulas (no Python). Checked against the Python build on every data refresh (`tests/rebuild.parity.js`) |
 
 ### Build it yourself
 
@@ -65,7 +67,7 @@ The workspace itself is `app.html` plus `js/`. To work on it in a browser, run `
 
 | Layer | Source | Status in the app |
 |---|---|---|
-| **25,587 public charging stations** with operator, power, connectors, tariff, address and source count | [reclaimchennai/india-ev-charging-dataset](https://github.com/reclaimchennai/india-ev-charging-dataset), merged from Kia/Numocity, MG eHUB, ChargeZone, Bolt.Earth, OpenChargeMap, OpenStreetMap, BESCOM and MeeTicket (ODbL 1.0) | observed |
+| **28,553 public charging stations** with operator, power, connectors, tariff, address and source count | [reclaimchennai/india-ev-charging-dataset](https://github.com/reclaimchennai/india-ev-charging-dataset), merged from Kia/Numocity, MG eHUB, ChargeZone, Bolt.Earth, OpenChargeMap, OpenStreetMap, BESCOM and MeeTicket (ODbL 1.0) | observed |
 | **Population, households, car & two-wheeler ownership, income bands** for all 640 Census 2011 districts | Census of India 2011 | observed |
 | **737 current district boundaries**, 36 states/UTs | [udit-001/india-maps-data](https://github.com/udit-001/india-maps-data) | observed |
 | **Census 2011 district polygons**, used to apportion 2011 totals onto post-2011 districts | [DataMeet](https://github.com/datameet/maps) (CC BY 4.0) | observed → imputed where split |
@@ -74,7 +76,7 @@ The workspace itself is `app.html` plus `js/`. To work on it in a browser, run `
 | Demand surface: ~260 hex cells per district | Census × GeoNames dasymetric model | derived |
 | Live OSM cross-check | Overpass API, queried from your browser | live |
 
-Pipeline checks: district populations reconcile to the Census 2011 national total within 0.01%. All 25,587 stations land
+Pipeline checks: district populations reconcile to the Census 2011 national total within 0.01%. All 28,553 stations land
 inside a district (38 coastal points snap to the nearest one). 494 districts map one-to-one onto Census 2011 districts; 243 are flagged *imputed*.
 
 ## Workspace
@@ -119,6 +121,21 @@ Panel layout and sizes are remembered. On phones the panels stack under the map.
   tariffs, reliability, "X to Y by EV"). There is an optional Claude mode using your own Anthropic API key, sent straight from your browser
   to the API and stored only if you choose.
 
+## Round 2: PM E-DRIVE, VAHAN by RTO, capacity
+
+| Feature | Detail |
+|---|---|
+| PM E-DRIVE costing in the optimiser | Location categories A–D and subsidy shares from MHI's Operational Guidelines (26 Sep 2025, Table 2); EVSE benchmarks from BEE (Oct 2025, ex-GST); upstream estimated from the BEE table by station rating plus HT extension to the nearest substation, to be replaced by DISCOM demand notes; Category A ≤ 20% of subsidy (FAQ 1); budget counted as project cost, subsidy envelope or agency outlay (`js/pmedrive.js`) |
+| Station types | City (1 × 60 kW CCS-II + 2 × 12 kW LECCS/LEVDC), highway (1 × 240 kW + 2 × 60 kW CCS-II), 2W/3W hub (4 × 12 kW) or battery swapping (Category D), chosen from the site type and the district's fleet mix; overridable per site |
+| Real eligible sites | PSU OMC outlets, toll plazas, railway and bus stations, AAI airports and government premises from OpenStreetMap become candidates with their category |
+| MHI proposal export | Annexure B, C, D (and L–M for swapping stations) as .xlsx in the official column layout, plus the feasibility study report (FAQ 4) as PDF |
+| VAHAN by RTO | Registrations by RTO and month since Jan 2022 (India Data Portal mirror of VAHAN, ODC-BY), matched to districts; e-rickshaws observed; segment split modelled from EV-only makers and validated out of sample (e-2W 10.8% state MAPE in 2024; e-4W 8.2% and e-bus 6.6% against published monthly totals); a national-total row mislabelled as an RTO is detected and removed |
+| Capacity | M/M/c (Erlang C) peak-hour queue per site and per district: shows where 100% spatial coverage still needs more guns |
+| Adoption S-curve | Logistic EV share of new registrations per segment, anchored to the observed share; fleet, guns per charger type and MW to 2030 |
+| Provable optimiser | Modified greedy guarantee ½(1 − 1/e) for budgeted coverage (1 − 1/e with equal costs); measured 95.0–100% of the LP bound on 10 districts × 2 budgets |
+| Jury tools | Live challenge (any district, town or corridor; ₹10 crore plan with a timer), split-screen vs EV-to-charger ratio allocation, Round 1 → Round 2 changelog, Rule 5 & 6 disclosures |
+| Unified Bharat E-Charge | `GET /api/v1/scenarios/{id}/ubec`: planned stations with location, status, pricing and payment fields and OCPI 2.2.1 connector codes, as a draft for onboarding (the hub's protocol is not yet published) |
+
 ## Everything in the proposal, as a static site
 
 | Proposal item | Where |
@@ -152,6 +169,8 @@ Limits that a static site cannot remove: roles and the audit log are enforced in
 ```bash
 node tests/engine.test.js
 node tests/advanced.test.js
+node tests/pmedrive.test.js     # PM E-DRIVE subsidy maths, Erlang C, S-curve, Annexure workbook, integration
+node tests/rebuild.parity.js    # in-app rebuild reproduces the Python pipeline (needs pipeline/raw/)
 ```
 
 The tests run against the real bundled data and cover the proposal §8 acceptance rules:

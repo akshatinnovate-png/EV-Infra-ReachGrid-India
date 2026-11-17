@@ -335,10 +335,11 @@ def vahan_rto(idp_dir: str, districts, state_e2w_obs=None, district_weight=None,
     sids = {d["sid"] for d in districts}
     dm = collections.defaultdict(lambda: collections.defaultdict(lambda: [0.0] * 6))   # i -> month -> [ev, erick, all2w, all3w, all4w, allbus]
     pool = collections.defaultdict(lambda: collections.defaultdict(lambda: [0.0] * 6))
-    how = collections.Counter(); how_ev = collections.Counter(); unmatched = []
+    how = collections.Counter(); how_ev = collections.Counter(); unmatched = []; rto_map = []
     for (sid, rto, code), m in ser.items():
         ev = sum(v[0] for v in m.values())
         i, h = match(sid, rto) if sid in sids else (None, "state-unknown")
+        rto_map.append([sid, rto, code, districts[i]["id"] if i is not None else ""])
         how[h] += 1; how_ev[h] += ev
         tgt = dm[i] if i is not None else pool[sid]
         for mo, v in m.items():
@@ -435,7 +436,14 @@ def vahan_rto(idp_dir: str, districts, state_e2w_obs=None, district_weight=None,
             v["e4w"] = min(left, v["e4w"] * seg_k.get("e4w", 1)); left -= v["e4w"]
             v["bus"] = min(left, v["bus"] * seg_k.get("bus", 1)); left -= v["bus"]
             v["l5"] = left   # e-3W autos/cargo (L5) and anything not otherwise attributed
-    # 6. output
+    # 6. calibrated split of the non-e-rickshaw remainder per state-year (lets the desktop app split new months the same way)
+    split = collections.defaultdict(lambda: collections.defaultdict(lambda: [0.0] * 5))
+    for i, ms in est.items():
+        sid = districts[i]["sid"]
+        for mo, v in ms.items():
+            a = split[sid][mo[:4]]; a[0] += v["e2w"]; a[1] += v["l5"]; a[2] += v["e4w"]; a[3] += v["bus"]; a[4] += v["rem"]
+    split_out = {sid: {y: [round(a[k] / a[4], 4) if a[4] else 0 for k in range(4)] for y, a in ys.items()} for sid, ys in split.items()}
+    # 7. output
     out = {}
     last24 = months[-24:]
     for i, ms in est.items():
@@ -455,7 +463,8 @@ def vahan_rto(idp_dir: str, districts, state_e2w_obs=None, district_weight=None,
             "aggregates_removed": aggregates,
             "match": {h: {"rtos": how[h], "ev_share": round(how_ev[h] / tot, 4)} for h in how},
             "unmatched_top": [{"ev": round(e), "state": s, "rto": r} for e, s, r in sorted(unmatched, reverse=True)[:25]],
-            "calibration": calib, "monthly_labels": last24}
+            "calibration": calib, "monthly_labels": last24, "rto_map": sorted(rto_map), "split": split_out,
+            "split_order": ["e2w", "e3w_l5", "e4w", "bus"]}
     return out, meta
 
 

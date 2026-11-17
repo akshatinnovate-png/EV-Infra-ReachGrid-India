@@ -360,11 +360,14 @@ def main():
                 for ci, k in ks:
                     w[ci] += share * k / kt
         # nearest charger distance per cell (national charger set)
+        # true great-circle nearest: planar nearest in degrees can pick a farther charger (1° of longitude < 1° of latitude),
+        # so take every charger inside a box around the planar nearest and keep the haversine minimum
         dist = []
         for cx, cy in cells:
-            j = ch_tree.query_nearest(Point(cx, cy))
-            j = int(j[0])
-            dist.append(haversine_km(cy, cx, all_pts[j][0], all_pts[j][1]))
+            j = int(ch_tree.query_nearest(Point(cx, cy))[0])
+            r = math.hypot(all_pts[j][1] - cx, all_pts[j][0] - cy) * 1.2 + 1e-6
+            near = ch_tree.query(Point(cx, cy).buffer(r))
+            dist.append(min(haversine_km(cy, cx, all_pts[int(k)][0], all_pts[int(k)][1]) for k in near) if len(near) else haversine_km(cy, cx, all_pts[j][0], all_pts[j][1]))
         d["cells"] = [[r4(cx), r4(cy), int(round(wi))] for (cx, cy), wi in zip(cells, w)]
         d["cell_km"] = round(s_km, 2)
         tot = sum(w) or 1

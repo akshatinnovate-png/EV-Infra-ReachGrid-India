@@ -25,7 +25,7 @@
     "productName": "ReachGrid India",
     "copyright": "© 2026 Team GoingAgain",
     "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["main.js", "preload.js", "server.js", "governance.js", "build/icon.png", "package.json"],
+    "files": ["main.js", "preload.js", "server.js", "governance.js", "rebuild.js", "build/icon.png", "package.json"],
     "extraResources": [
       {
         "from": "..",

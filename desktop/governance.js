@@ -25,7 +25,7 @@ function createGovernance(userDir) {
 
   let users = readJSON("users.json", null);
   if (!users) { users = { owner: { name: "Owner", role: "admin", hash: null, created: new Date().toISOString() } }; writeJSON("users.json", users); }
-  let settings = { tileUrl: "", requireSignIn: false, apiKey: crypto.randomBytes(18).toString("base64url"), apiWrite: false, apiPort: 0, osrmRouting: true, autoUpdate: true, ...readJSON("settings.json", {}) };
+  let settings = { teamServer: false, teamPort: 47800, tileUrl: "", requireSignIn: false, apiKey: crypto.randomBytes(18).toString("base64url"), apiWrite: false, apiPort: 0, osrmRouting: true, autoUpdate: true, ...readJSON("settings.json", {}) };
   writeJSON("settings.json", settings);
   let workspace = readJSON("workspace.json", {});
   const sessions = new Map();
@@ -73,6 +73,43 @@ function createGovernance(userDir) {
     if (!owner) return { ok: false, needSignIn: true };
     return signIn(owner, "");
   }
+  /* ---------- team sessions (LAN clients): separate from the desktop window's own session ---------- */
+  const TEAM_TTL = 12 * 3600 * 1000;
+  const failures = new Map();   // ip -> [timestamps]
+  function teamSignIn(user, pw, ip = "?") {
+    const now = Date.now(), recent = (failures.get(ip) || []).filter(t => now - t < 60000);
+    if (recent.length >= 5) { auditAdd("auth.team_locked", `${user}@${ip}`, "system"); return { ok: false, status: 429, error: "Too many failed attempts from this address. Wait a minute." }; }
+    const u = users[user];
+    if (!u || !u.hash || !checkPw(pw, u.hash)) {   // remote accounts must have a password
+      recent.push(now); failures.set(ip, recent);
+      auditAdd("auth.team_fail", `${user}@${ip}`, "system");
+      return { ok: false, status: 401, error: u && !u.hash ? "This account has no password. An Admin must set one before it can join over the network." : "Wrong user name or password" };
+    }
+    failures.delete(ip);
+    const token = crypto.randomBytes(24).toString("hex");
+    const s = { user, token, at: now, team: true, ip };
+    sessions.set(token, s);
+    auditAdd("auth.team_sign_in", `${user}@${ip}`, user);
+    return { ok: true, session: pubSession(s) };
+  }
+  function sessionFor(token) {
+    const s = token && sessions.get(token);
+    if (!s) return null;
+    if (s.team && Date.now() - s.at > TEAM_TTL) { sessions.delete(token); return null; }
+    if (!users[s.user]) { sessions.delete(token); return null; }
+    return s;
+  }
+  /** run fn with the session of `token` (synchronous governance functions only) */
+  function asSession(token, fn) {
+    const s = sessionFor(token);
+    if (!s) return { ok: false, status: 401, error: "Not signed in" };
+    const prev = session; session = s;
+    try { return fn(); } finally { session = prev; }
+  }
+  function teamSignOut(token) { const s = sessionFor(token); if (s) { auditAdd("auth.team_sign_out", s.user, s.user); sessions.delete(token); } return { ok: true }; }
+  function teamSessions() { const out = []; for (const s of sessions.values()) if (s.team && sessionFor(s.token)) out.push({ user: s.user, ip: s.ip, since: new Date(s.at).toISOString() }); return out; }
+  const pubSession = (s) => s ? { user: s.user, name: users[s.user].name, role: users[s.user].role, token: s.token, perms: PERMS[users[s.user].role], team: !!s.team } : null;
+
   function signOut() { if (session) { auditAdd("auth.sign_out", session.user); sessions.delete(session.token); } session = null; return { ok: true }; }
   const publicSession = () => session ? { user: session.user, name: users[session.user].name, role: users[session.user].role, token: session.token, perms: PERMS[users[session.user].role] } : null;
 
@@ -124,13 +161,16 @@ function createGovernance(userDir) {
   }
   function updateSettings(patch) {
     if (!can("settings")) return { ok: false, error: "Only an Admin can change settings" };
-    const allowed = ["requireSignIn", "apiWrite", "apiPort", "osrmRouting", "autoUpdate", "tileUrl"];
+    const allowed = ["requireSignIn", "apiWrite", "apiPort", "osrmRouting", "autoUpdate", "tileUrl", "teamServer", "teamPort"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) return { ok: false, error: "Unknown setting " + k };
     if ("tileUrl" in patch && patch.tileUrl) {
       const t = String(patch.tileUrl).trim();
       if (!/^https:\/\/\S+$/.test(t) || !["{z}", "{x}", "{y}"].every(k => t.includes(k))) return { ok: false, error: "Tile URL must start with https:// and contain {z}, {x} and {y}" };
       patch.tileUrl = t;
     }
+    if (patch.teamServer && !(patch.requireSignIn ?? settings.requireSignIn)) return { ok: false, error: "Turn on 'require a password' (Users tab) before sharing on the network" };
+    if (patch.requireSignIn === false && settings.teamServer) return { ok: false, error: "Stop the team server before turning off sign-in" };
+    if ("teamPort" in patch && !(Number.isInteger(+patch.teamPort) && +patch.teamPort >= 1024 && +patch.teamPort <= 65535)) return { ok: false, error: "Team port must be 1024–65535" };
     if (patch.requireSignIn && !Object.values(users).some(u => u.role === "admin" && u.hash)) return { ok: false, error: "Set a password for at least one Admin before requiring sign-in" };
     settings = { ...settings, ...patch }; writeJSON("settings.json", settings); auditAdd("settings.update", JSON.stringify(patch));
     return { ok: true, settings: publicSettings() };
@@ -156,7 +196,8 @@ function createGovernance(userDir) {
   }
 
   return {
-    ROLES, PERMS, can, signIn, autoSignIn, signOut, session: publicSession, checkToken: (t) => sessions.has(t),
+    ROLES, PERMS, can, signIn, autoSignIn, signOut, session: publicSession, checkToken: (t) => !!sessionFor(t),
+    teamSignIn, teamSignOut, asSession, sessionFor, teamSessions, pubSession,
     storeGet, storeSet, auditAdd, auditList: () => auditLines(), auditVerify, listUsers, saveUser, deleteUser, changeOwnPassword,
     settings: () => settings, publicSettings, updateSettings, regenerateApiKey, exportProject, importProject,
   };

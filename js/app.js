@@ -948,7 +948,7 @@
     if (DESK && (await deskSettings()).osrmRouting) {
       $("#insp-body").innerHTML = `<p class="sub">Routing on the street network (OSRM)…</p>`;
       try {
-        const j = await fetch(`/proxy/osrm?coords=${C.from[1]},${C.from[2]};${C.to[1]},${C.to[2]}`).then(x => { if (!x.ok) throw new Error("HTTP " + x.status); return x.json(); });
+        const j = await fetch(`/proxy/osrm?coords=${C.from[1]},${C.from[2]};${C.to[1]},${C.to[2]}`, { headers: { "X-Session-Token": (DESK && DESK.session() || {}).token || "" } }).then(x => { if (!x.ok) throw new Error("HTTP " + x.status); return x.json(); });
         if (j.routes && j.routes[0]) r = { path: j.routes[0].geometry.coordinates, km: j.routes[0].distance / 1000, snapFrom: 0, snapTo: 0, engine: "OSRM street network" };
       } catch (e) { toast("Street routing unavailable (" + e.message + "); using the highway graph"); }
     }
@@ -1087,6 +1087,7 @@
     if (abt && !$("#ab-chal")) {
       const b = document.createElement("button"); b.className = "ab-btn ab-wide"; b.id = "ab-chal"; b.title = "Live challenge: name any district or corridor"; b.textContent = "⏱ Challenge"; b.onclick = openChallenge; abt.prepend(b);
     }
+    if (DESK && DESK.team && !$("#sb-team")) { const t = document.createElement("span"); t.id = "sb-team"; t.className = "sb-badge"; t.style.cursor = "default"; t.textContent = "● team: " + DESK.team.name; ($("#sb-build") || document.body).before(t); }
     const sbb = $("#sb-build");
     if (sbb && !$("#sb-disc")) { const d = document.createElement("button"); d.id = "sb-disc"; d.className = "sb-badge"; d.title = "Data and AI disclosures"; d.textContent = "✓ Rule 5 & 6 disclosures"; d.onclick = openDisclosures; sbb.before(d); }
     const gs = searchBox("q", "Search any state, district or town…  ( / )");
@@ -2048,7 +2049,7 @@
     await new Promise((resolve) => {
       const d = document.createElement("div"); d.className = "signin";
       document.body.style.overflow = "hidden";
-      d.innerHTML = `<div class="win" style="width:min(380px,calc(100vw - 32px))"><div class="tb"><span class="t">ReachGrid India · sign in</span></div><div class="bd"><div style="display:flex;gap:12px;align-items:center;margin-bottom:8px"><img src="desktop-logo.png" width="52" height="52" alt=""><div><b style="font-family:var(--sans);font-size:18px">ReachGrid India</b><div class="sub">Sign-in is required on this computer.</div></div></div><form id="si"><label class="f">User<input id="si-u" autocomplete="username" required></label><label class="f">Password<input id="si-p" type="password" autocomplete="current-password"></label><div id="si-e" class="sub" style="color:var(--bad);min-height:16px"></div><button class="btn" style="width:100%;justify-content:center">Sign in</button></form></div></div>`;
+      d.innerHTML = `<div class="win" style="width:min(380px,calc(100vw - 32px))"><div class="tb"><span class="t">ReachGrid India · sign in</span></div><div class="bd"><div style="display:flex;gap:12px;align-items:center;margin-bottom:8px"><img src="desktop-logo.png" width="52" height="52" alt=""><div><b style="font-family:var(--sans);font-size:18px">ReachGrid India</b><div class="sub">${DESK.team ? `Sign in to the team workspace on <b>${esc(DESK.team.name)}</b>.` : "Sign-in is required on this computer."}</div></div></div><form id="si"><label class="f">User<input id="si-u" autocomplete="username" required></label><label class="f">Password<input id="si-p" type="password" autocomplete="current-password"></label><div id="si-e" class="sub" style="color:var(--bad);min-height:16px"></div><button class="btn" style="width:100%;justify-content:center">Sign in</button></form></div></div>`;
       document.body.appendChild(d); $("#si-u").focus();
       $("#si").onsubmit = async (e) => { e.preventDefault(); const r = await DESK.signIn($("#si-u").value.trim(), $("#si-p").value); if (r.ok) { d.remove(); document.body.style.overflow = ""; resolve(); } else $("#si-e").textContent = r.error; };
     });
@@ -2074,7 +2075,8 @@
 
   async function openSettings(section = "account") {
     const sess = DESK.session() || {}, st = await deskSettings(true), info = DESK.info(), admin = Gov.can("settings");
-    const tabs = [["account", "Account"], ["users", "Users"], ["api", "Local API"], ["data", "Data & maps"], ["updates", "Updates"], ["about", "About"]];
+    const tabs = DESK.team ? [["account", "Account"], ["users", "Users"], ["team", "Team"], ["about", "About"]]
+      : [["account", "Account"], ["users", "Users"], ["team", "Team"], ["api", "Local API"], ["data", "Data & maps"], ["updates", "Updates"], ["about", "About"]];
     const m = modal("Settings", `<div class="tabs" style="margin:-12px -12px 10px;position:static">${tabs.map(([k, n]) => `<button data-st="${k}" aria-selected="${k === section}">${n}</button>`).join("")}</div><div id="st-body"></div>`, { wide: true });
     const body = $("#st-body", m.el);
     $$("[data-st]", m.el).forEach(b => b.onclick = () => { m.close(); openSettings(b.dataset.st); });
@@ -2125,6 +2127,10 @@
       body.innerHTML = `<div class="kpis"><div class="kpi"><b class="mono" style="font-size:13px">${esc(INDIA.version)}</b><span>data build in use</span></div><div class="kpi"><b>${(tc.bytes / 1e6).toFixed(1)} MB</b><span>${nIN(tc.files)} map tiles cached offline</span></div><div class="kpi"><b>${INDIA.grid ? (INDIA.grid.kind === "substation" ? "OSM substations" : "WRI plants") : "—"}</b><span>grid proxy (${INDIA.grid ? nIN(INDIA.grid.points.length / 3) : 0} points)</span></div></div>
         <div class="hdr"><span>Data updates</span></div><p class="sub">The published data rebuilds weekly from the public sources. Updates download into your profile; the bundled data stays as a fallback.</p>
         <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm" id="du-c">Check for new data</button><button class="btn sm ghost" id="du-r" ${admin ? "" : "disabled"}>Revert to bundled data</button></div><div id="du-o" class="sub" style="margin-top:6px"></div>
+        <div class="hdr"><span>Rebuild from the sources</span><span class="sub">no Python needed</span></div>
+        <p class="sub">Re-download the changing sources and rebuild them here with the pipeline's formulas: charger listings (coverage and statistics for all 737 districts), VAHAN registrations by RTO (≈130 MB), and OpenStreetMap PM E-DRIVE locations. Census, boundaries and demand cells are reused. “Revert to bundled data” undoes it.</p>
+        <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px"><label><input type="checkbox" data-rb="chargers" checked> chargers</label><label><input type="checkbox" data-rb="vahan" checked> VAHAN by RTO</label><label><input type="checkbox" data-rb="osm"> OpenStreetMap locations</label></div>
+        <button class="btn sm" id="rb-go" ${admin ? "" : "disabled"} style="margin-top:6px">Rebuild now</button><div id="rb-o" class="sub" style="margin-top:6px"></div>
         <div class="hdr"><span>Live grid layer</span></div><p class="sub">Fetch every power substation in India from OpenStreetMap (Overpass) and use it for grid proximity in feasibility scores, instead of the power-plant proxy. Takes 1–5 minutes.</p>
         <button class="btn sm" id="gr" ${admin ? "" : "disabled"}>Refresh substations from OpenStreetMap</button><div id="gr-o" class="sub" style="margin-top:6px"></div>
         <div class="hdr"><span>Offline street maps</span></div><p class="sub">Every tile you view is cached. To work offline in the field, download a whole region in advance.</p>
@@ -2140,6 +2146,15 @@
         if (!r.available) { $("#du-o").textContent = `Up to date (${r.current}).`; return; }
         $("#du-o").innerHTML = `New build <b>${esc(r.remote)}</b> available (you have ${esc(r.current)}). ${admin ? `<button class="btn sm" id="du-a">Download and apply</button>` : "Ask an Admin to update."}`;
         if (admin) $("#du-a").onclick = async () => { DESK.on("data:progress", (i, n) => { $("#du-o").textContent = `Downloading ${i}/${n} files…`; }); const a = await DESK.applyData(); if (a.error) $("#du-o").textContent = "Failed: " + a.error; else { $("#du-o").textContent = `Updated to ${a.build}. Reloading…`; setTimeout(() => location.reload(), 900); } };
+      };
+      $("#rb-go", body).onclick = async () => {
+        const parts = $$("[data-rb]", body).filter(x => x.checked).map(x => x.dataset.rb); if (!parts.length) return;
+        const o = $("#rb-o"); $("#rb-go").disabled = true; o.textContent = "Starting…";
+        DESK.on("rebuild:progress", (part, msg) => { o.textContent = `${part}: ${msg}`; });
+        const r = await DESK.rebuildData(parts);
+        if (!r || !r.ok) { o.textContent = "Failed: " + (r && r.error || "unknown"); $("#rb-go").disabled = false; return; }
+        o.innerHTML = `Rebuilt <b>${esc(r.build)}</b>: ${Object.entries(r.report).map(([k, v]) => `${k} ${esc(JSON.stringify(v).replace(/[{}"]/g, "").slice(0, 120))}`).join(" · ")}. ${r.changedStates} states changed. Reloading…`;
+        setTimeout(() => location.reload(), 1500);
       };
       $("#du-r", body).onclick = async () => { const r = await DESK.revertData(); if (r.error) toast(r.error); else { toast("Back to bundled data " + r.build); setTimeout(() => location.reload(), 600); } };
       $("#gr", body).onclick = async () => { DESK.on("grid:progress", (t) => { $("#gr-o").textContent = t; }); $("#gr-o").textContent = "Starting…"; const r = await DESK.refreshGrid(); if (r.error) $("#gr-o").textContent = "Failed: " + r.error; else { $("#gr-o").textContent = `${nIN(r.substations)} substations loaded. Reloading…`; setTimeout(() => location.reload(), 900); } };
@@ -2168,6 +2183,35 @@
         <button class="btn sm" id="au-c">Check for app updates now</button>`;
       $("#au", body).onchange = async (e) => { const r = await DESK.updateSettings({ autoUpdate: e.target.checked }); toast(r.ok ? "Saved" : r.error); };
       $("#au-c", body).onclick = () => DESK.checkAppUpdate();
+    }
+    if (section === "team") {
+      if (DESK.team) {
+        body.innerHTML = `<div class="kpis"><div class="kpi"><b>${esc(DESK.team.name)}</b><span>team server</span></div><div class="kpi"><b class="mono" style="font-size:12px">${esc(DESK.team.server)}</b><span>address</span></div><div class="kpi"><b>${esc((sess.name || sess.user || "—"))}</b><span>${esc(ROLES[sess.role] || "")} on the server</span></div></div>
+          <p>You are working in a shared workspace. Evidence, portfolio, reviews and saved scenarios live on the server; your role is enforced there and every action is in its audit log. Files and PDFs you export are saved on this computer.</p>
+          <button class="btn sm" id="tm-leave">Disconnect and use this computer's workspace</button>`;
+        $("#tm-leave", body).onclick = () => DESK.leaveTeam();
+      } else {
+        const t = await DESK.teamStatus();
+        body.innerHTML = `<div class="hdr"><span>Share this workspace on your network</span><span class="sub">team server</span></div>
+          <p class="sub" style="margin-top:0">Colleagues with ReachGrid on the same office network join this workspace and work on the same evidence, portfolio, reviews and scenarios, each with their own account and role. Requires sign-in with passwords; traffic is plain HTTP, so use it on a trusted network.</p>
+          ${t.running ? `<div class="kpis"><div class="kpi"><b style="color:var(--good)">Sharing</b><span>port ${t.port}</span></div><div class="kpi"><b>${(t.sessions || []).length}</b><span>colleagues signed in</span></div></div>
+            <div class="sub">Give colleagues this address (Settings → Team → Join):</div>${(t.urls || []).map(x => `<pre class="out" style="margin:4px 0">${esc(x)}</pre>`).join("")}
+            ${(t.sessions || []).length ? `<table class="t"><thead><tr><th>User</th><th>From</th><th>Since</th></tr></thead><tbody>${t.sessions.map(x => `<tr><td>${esc(x.user)}</td><td class="mono">${esc(x.ip)}</td><td>${esc(x.since.slice(11, 16))}</td></tr>`).join("")}</tbody></table>` : ""}
+            ${admin ? `<button class="btn sm ghost" id="tm-stop">Stop sharing</button>` : ""}`
+          : `${!t.requireSignIn ? note("Turn on “require a password” in the Users tab first (set an Admin password), then share.", true) : ""}
+            ${admin ? `<div class="grid2"><label class="f">Port<input type="number" id="tm-port" min="1024" max="65535" value="${t.port || 47800}"></label><label class="f" style="align-content:end"><button class="btn sm" id="tm-start" ${t.requireSignIn ? "" : "disabled"}>Start sharing</button></label></div>` : note("Only an Admin can share this workspace.", true)}`}
+          <div id="tm-e" class="sub" style="color:var(--bad);min-height:14px"></div>
+          <div class="hdr"><span>Join a colleague's workspace</span><span class="sub">team client</span></div>
+          <form id="tm-j" style="display:flex;gap:6px"><input id="tm-url" style="flex:1" placeholder="http://192.168.1.20:47800"><button class="btn sm">Join</button></form>
+          <p class="sub">This computer's own workspace is kept; disconnect any time to return to it.</p>`;
+        const err = (x) => { $("#tm-e").textContent = x || ""; };
+        if ($("#tm-start", body)) $("#tm-start", body).onclick = async () => {
+          const pv = +$("#tm-port").value; if (pv !== t.port) { const r0 = await DESK.updateSettings({ teamPort: pv }); if (!r0.ok) return err(r0.error); }
+          const r = await DESK.teamStart(); if (!r.ok) return err(r.error); m.close(); openSettings("team");
+        };
+        if ($("#tm-stop", body)) $("#tm-stop", body).onclick = async () => { await DESK.teamStop(); m.close(); openSettings("team"); };
+        $("#tm-j", body).onsubmit = async (e) => { e.preventDefault(); const r = await DESK.joinTeam($("#tm-url").value); if (!r.ok) err(r.error); };
+      }
     }
     if (section === "about") {
       body.innerHTML = `<div style="display:flex;gap:16px;align-items:center"><img src="desktop-logo.png" width="72" height="72" alt=""><div><div class="big-name">ReachGrid India</div><div class="sub">EV charging access intelligence & investment optimisation · v${esc(info.version)}</div></div></div>
@@ -2237,7 +2281,7 @@
     { sel: ".appbar", title: "ReachGrid workspace", text: "A decision engine for public EV charging: real chargers, census demand and a budget optimiser for every state and district. Use Next, or the arrow keys.", run: () => { S.mode = "atlas"; return goIndia(); } },
     { sel: "#map", title: "India, coloured by access gap", text: "Every state shaded by the share of people more than 10 km from a listed charger. Darker means it needs more attention. Click any state to pop it out." },
     { sel: "#w-nav", title: "Ranked: needs attention first", text: "The navigator ranks states or districts by any metric. The search box (press /) finds any state, district or town." },
-    { sel: "#w-insp", title: "Drill into a district", text: "East Singhbhum, Jharkhand: 22.9 lakh people, 22 listed charging sites. The inspector shows provenance, the distance distribution and the towns with no nearby charger.", run: () => goDistrict("jharkhand.east-singhbhum") },
+    { sel: "#w-insp", title: "Drill into a district", text: "East Singhbhum, Jharkhand. The inspector shows population, listed charging sites and registered EVs with their provenance, the distance distribution and the towns with no nearby charger.", run: () => goDistrict("jharkhand.east-singhbhum") },
     { sel: "#w-insp", title: "Plan new chargers", text: "Choose an objective (coverage, equity, corridor or commercial), a distance threshold, a budget and hardware. Four planning objectives and two baselines compete on the scenario board.", run: () => { S.tab = "plan"; S.planKey = "greedy"; renderInspector(); drawPlan(true); } },
     { sel: "#map", title: "Where to build, and why", text: "Numbered pink pins are the greedy picks in order. Blue cells are people newly brought within reach. Click a pin for its score breakdown, confidence, commercial screen and review controls." },
     { sel: "#w-insp", title: "How many chargers by 2030?", text: "The Forecast tab projects the EV fleet from real VAHAN registrations (2020–2024 trend), adds 3W, car and bus segments, and converts public charging demand into AC and DC charge points needed each year, against the existing inventory.", run: () => { S.tab = "forecast"; renderInspector(); } },

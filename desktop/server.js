@@ -6,6 +6,7 @@
  */
 "use strict";
 const http = require("http");
+const os = require("os");
 const fs = require("fs");
 const path = require("path");
 const vm = require("vm");
@@ -13,7 +14,7 @@ const crypto = require("crypto");
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4", ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8" };
 
-function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch }) {
+function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch, appVersion = "" }) {
   const overlayDir = path.join(userDir, "data-overlay");
   const tileRoot = path.join(userDir, "tiles");
   /* Basemap source. CARTO's free basemaps now need an API key, so the default is the OpenStreetMap
@@ -111,11 +112,45 @@ function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch 
   }
   function dirSize(d) { let n = 0, files = 0; if (!fs.existsSync(d)) return { bytes: 0, files: 0 }; const walk = (p) => { for (const e of fs.readdirSync(p, { withFileTypes: true })) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else { n += fs.statSync(q).size; files++; } } }; walk(d); return { bytes: n, files }; }
 
+  /* ---------- team server (LAN): shared workspace for colleagues' ReachGrid apps ---------- */
+  const tokenOf = (req, u) => req.headers["x-session-token"] || (u && u.searchParams.get("token")) || "";
+  async function teamRoute(req, res, u, p, team) {
+    const J = (st, o) => send(res, st, JSON.stringify(o), { "Content-Type": "application/json" });
+    const body = async () => { try { return JSON.parse(await readBody(req) || "{}"); } catch { return {}; } };
+    const token = tokenOf(req, u), ip = (req.socket.remoteAddress || "?").replace(/^::ffff:/, "");
+    if (p === "/team/info") return J(200, { app: "ReachGrid India", version: appVersion, build: currentBuild(), team: !!team, server: os.hostname(), requireSignIn: !!gov.settings().requireSignIn });
+    if (p === "/team/sign-in" && req.method === "POST") { const b = await body(); const r = gov.teamSignIn(String(b.user || ""), String(b.password || ""), ip); return J(r.ok ? 200 : r.status || 401, r); }
+    if (p === "/team/sign-out" && req.method === "POST") return J(200, gov.teamSignOut(token));
+    const s = gov.sessionFor(token);
+    if (!s) return J(401, { ok: false, error: "Not signed in" });
+    const as = (fn) => gov.asSession(token, fn);
+    if (p === "/team/session") return J(200, gov.pubSession(s));
+    if (p === "/team/store") {
+      const key = u.searchParams.get("key") || "";
+      if (!/^[a-z0-9_]{1,40}$/.test(key)) return J(400, { ok: false, error: "bad key" });
+      if (req.method === "GET") return J(200, { value: gov.storeGet(key) });
+      if (req.method === "PUT") { const b = await body(); const r = as(() => gov.storeSet(key, b.value)); return J(r.ok ? 200 : 403, r); }
+    }
+    if (p === "/team/audit" && req.method === "GET") return J(200, gov.auditList());
+    if (p === "/team/audit" && req.method === "POST") { const b = await body(); return J(200, as(() => gov.auditAdd(String(b.action || "client"), String(b.detail || "")))); }
+    if (p === "/team/audit/verify") return J(200, gov.auditVerify());
+    if (p === "/team/users" && req.method === "GET") return J(200, gov.listUsers());
+    if (p === "/team/users" && req.method === "POST") { const b = await body(); const r = as(() => gov.saveUser(b)); return J(r.ok ? 200 : 403, r); }
+    if (p === "/team/users" && req.method === "DELETE") { const r = as(() => gov.deleteUser(u.searchParams.get("id"))); return J(r.ok ? 200 : 403, r); }
+    if (p === "/team/password" && req.method === "POST") { const b = await body(); const r = as(() => gov.changeOwnPassword(b.old || "", b.new || "")); return J(r.ok ? 200 : 403, r); }
+    if (p === "/team/settings") return J(200, as(() => gov.publicSettings()));
+    if (p === "/team/project") { const r = as(() => (gov.can("export") ? gov.exportProject() : { ok: false, error: "Your role cannot export" })); return J(r.ok === false ? 403 : 200, r); }
+    return J(404, { ok: false, error: "no such team endpoint" });
+  }
+
   /* ---------- request router ---------- */
-  const server = http.createServer(async (req, res) => {
+  const handler = async (req, res, team = false) => {
     try {
       const u = new URL(req.url, "http://127.0.0.1");
       const p = decodeURIComponent(u.pathname);
+      if (p.startsWith("/team/")) return await teamRoute(req, res, u, p, team);
+      // on the LAN listener the outbound proxies need a signed-in session (no open proxy on the network)
+      if (team && p.startsWith("/proxy/") && !gov.sessionFor(tokenOf(req, u))) return send(res, 401, "sign in first");
       if (p === "/api/v1" || p.startsWith("/api/v1/")) {
         await core();
         const r = await api.route({ method: req.method, pathname: p, searchParams: u.searchParams, query: u.search, bodyText: req.method === "POST" ? await readBody(req) : "", headers: req.headers });
@@ -148,10 +183,29 @@ function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch 
       log("server error " + e.stack);
       if (!res.headersSent) send(res, 500, JSON.stringify({ error: e.message }), { "Content-Type": "application/json" });
     }
-  });
+  };
+  const server = http.createServer((q, r) => handler(q, r, false));
 
   function listen(port = 0) {
     return new Promise((ok, bad) => { server.once("error", bad); server.listen(port, "127.0.0.1", () => ok(server.address().port)); });
+  }
+  let teamSrv = null;
+  function teamInfo() {
+    if (!teamSrv || !teamSrv.listening) return { running: false };
+    const port = teamSrv.address().port;
+    const ips = Object.values(os.networkInterfaces()).flat().filter(i => i && i.family === "IPv4" && !i.internal).map(i => i.address);
+    return { running: true, port, urls: (ips.length ? ips : ["127.0.0.1"]).map(ip => `http://${ip}:${port}`), sessions: gov.teamSessions() };
+  }
+  function startTeam(port) {
+    return new Promise((ok, bad) => {
+      if (teamSrv && teamSrv.listening) return ok(teamInfo());
+      teamSrv = http.createServer((q, r) => handler(q, r, true));
+      teamSrv.once("error", (e) => { teamSrv = null; bad(e); });
+      teamSrv.listen(port, "0.0.0.0", () => { log("team server on " + port); ok(teamInfo()); });
+    });
+  }
+  function stopTeam() {
+    return new Promise((ok) => { if (!teamSrv) return ok({ running: false }); const t = teamSrv; teamSrv = null; t.close(() => ok({ running: false })); if (t.closeAllConnections) t.closeAllConnections(); });
   }
 
   /* ---------- data updates from the published repository ---------- */
@@ -175,6 +229,40 @@ function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch 
     }
     fs.rmSync(overlayDir, { recursive: true, force: true }); fs.renameSync(tmp, overlayDir); reloadData();
     return { build: currentBuild(), files: files.length };
+  }
+  /** rebuild time-varying layers from their sources inside the app (see rebuild.js); result goes to the data overlay */
+  const parseDataJS = (text) => { const t = text.slice(text.indexOf("*/") + 2); return JSON.parse(t.slice(t.indexOf("={") + 1).trim().replace(/;\s*$/, "")); };
+  async function rebuildData(parts, onProgress) {
+    const want = (parts || []).filter(p => ["chargers", "vahan", "osm"].includes(p));
+    if (!want.length) throw new Error("choose at least one layer to rebuild");
+    const india = parseDataJS(readApp("data/india.js", "utf8"));
+    const stateFiles = {}; for (const s of india.states) stateFiles[s.id] = parseDataJS(readApp(`data/state/${s.id}.js`, "utf8"));
+    const before = Object.fromEntries(india.states.map(s => [s.id, { chargers: s.stats.chargers, c10: s.stats.coverage["10"] }]));
+    const prevVersion = india.version, prevBuilt = india.built, prevChargers = india.totals.chargers;
+    const fetchText = async (url, timeout) => (await fetchBuf(url, { timeout })).toString("utf8");
+    const overpass = async (q) => {
+      let last;
+      for (const ep of ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]) {
+        try { return (await fetchBuf(ep, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 900000 })).toString("utf8"); }
+        catch (e) { last = e; log("overpass " + ep + " " + e.message); }
+      }
+      throw last || new Error("Overpass unavailable");
+    };
+    const out = await require("./rebuild").rebuild({ india, stateFiles, E: G.RGEngine, fetchText, overpass, parts: want, progress: (part, msg) => onProgress && onProgress(part, msg) });
+    const changes = { version: out.version, built: india.built, previous: { version: prevVersion, built: prevBuilt, chargers: prevChargers }, local: true,
+      states: india.states.filter(s => before[s.id] && (before[s.id].chargers !== s.stats.chargers || Math.abs(before[s.id].c10 - s.stats.coverage["10"]) > 1e-4))
+        .map(s => ({ id: s.id, name: s.name, chargers: [before[s.id].chargers, s.stats.chargers], coverage10: [before[s.id].c10, s.stats.coverage["10"]] })) };
+    india.changes = changes;
+    const hdr = `/* ReachGrid India data build ${out.version}. Rebuilt in the ReachGrid desktop app (${want.join(", ")}); do not edit. */\n`;
+    const tmp = path.join(userDir, "data-overlay.tmp"); fs.rmSync(tmp, { recursive: true, force: true });
+    const put = (rel, text) => { const f = path.join(tmp, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
+    put("data/india.js", hdr + "window.RG_INDIA=" + JSON.stringify(india) + ";\n");
+    for (const [sid, st] of Object.entries(stateFiles)) put(`data/state/${sid}.js`, hdr + `(window.RG_STATE=window.RG_STATE||{})['${sid}']=` + JSON.stringify(st) + ";\n");
+    put("data/changes.js", hdr + "window.RG_CHANGES=" + JSON.stringify(changes) + ";\n");
+    put("data/roads.js", readApp("data/roads.js", "utf8"));
+    fs.rmSync(overlayDir, { recursive: true, force: true }); fs.renameSync(tmp, overlayDir); reloadData();
+    log(`data rebuilt in app: ${want.join(",")} -> ${out.version} ${JSON.stringify(out.report)}`);
+    return { ok: true, build: out.version, report: out.report, changedStates: changes.states.length };
   }
   function revertData() { fs.rmSync(overlayDir, { recursive: true, force: true }); fs.mkdirSync(overlayDir, { recursive: true }); reloadData(); return currentBuild(); }
 
@@ -200,7 +288,7 @@ function createServer({ appDir, userDir, gov, log = () => {}, fetchImpl = fetch 
     return { substations: pts.length / 3 };
   }
 
-  return { listen, server, prefetchTiles, tileCacheSize: () => dirSize(tileRoot), clearTiles: () => { fs.rmSync(tileRoot, { recursive: true, force: true }); fs.mkdirSync(tileRoot, { recursive: true }); }, tileInfo: () => ({ template: tileTemplate(), osm: isOSM(), key: tileKey() }), checkDataUpdate, applyDataUpdate, revertData, currentBuild, refreshGridFromOSM, engine: G, core, stateData };
+  return { listen, server, startTeam, stopTeam, teamInfo, rebuildData, prefetchTiles, tileCacheSize: () => dirSize(tileRoot), clearTiles: () => { fs.rmSync(tileRoot, { recursive: true, force: true }); fs.mkdirSync(tileRoot, { recursive: true }); }, tileInfo: () => ({ template: tileTemplate(), osm: isOSM(), key: tileKey() }), checkDataUpdate, applyDataUpdate, revertData, currentBuild, refreshGridFromOSM, engine: G, core, stateData };
 }
 
 module.exports = { createServer, crypto };
