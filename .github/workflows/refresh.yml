@@ -27,6 +27,7 @@ jobs:
           node-version: 22
       - name: Tooling
         run: |
+          sudo apt-get update -q && sudo apt-get install -y -q osmium-tool
           pip install "shapely>=2"
           npm install -g mapshaper
           cd pipeline && npm install --no-save pbf@3
