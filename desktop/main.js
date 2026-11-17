@@ -119,14 +119,27 @@ function checkAppUpdate(manual) {
   try {
     updater = updater || require("electron-updater").autoUpdater;
     updater.autoDownload = true;
+    updater.autoInstallOnAppQuit = true;
+    // The installer is not yet code-signed, so a publisher-signature check would always reject updates. Integrity
+    // is still enforced: electron-updater checks the download's SHA-512 against latest.yml fetched over HTTPS.
+    updater.verifyUpdateCodeSignature = async () => null;
     updater.removeAllListeners();
-    updater.on("update-available", (i) => notify("Update available", `ReachGrid ${i.version} is downloading.`));
+    const RELEASES = "https://github.com/akshatinnovate-png/EV-Infra-ReachGrid-India/releases/latest";
+    updater.on("update-available", (i) => { log(`update ${i.version} available`); notify("Update available", `ReachGrid ${i.version} is downloading. Progress shows on the taskbar icon.`); });
+    updater.on("download-progress", (p) => { if (mainWin && !mainWin.isDestroyed()) { mainWin.setProgressBar(p.percent / 100); mainWin.setTitle(`ReachGrid India · downloading update ${Math.round(p.percent)}%`); } });
     updater.on("update-not-available", () => { if (manual) dialog.showMessageBox({ message: `You have the latest version (${app.getVersion()}).` }); });
     updater.on("update-downloaded", async (i) => {
-      const r = await dialog.showMessageBox({ type: "info", buttons: ["Restart now", "Later"], message: `ReachGrid ${i.version} is ready`, detail: "Restart to finish updating." });
-      if (r.response === 0) updater.quitAndInstall();
+      log(`update ${i.version} downloaded`);
+      if (mainWin && !mainWin.isDestroyed()) { mainWin.setProgressBar(-1); mainWin.setTitle("ReachGrid India"); }
+      const r = await dialog.showMessageBox({ type: "info", buttons: ["Install and restart now", "Install when I close the app"], defaultId: 0, message: `ReachGrid ${i.version} is ready to install`, detail: "Your workspace, accounts and data are kept." });
+      if (r.response === 0) setImmediate(() => updater.quitAndInstall(true, true));
     });
-    updater.on("error", (e) => { log("updater " + e.message); if (manual) dialog.showMessageBox({ type: "warning", message: "Could not check for updates", detail: e.message }); });
+    updater.on("error", async (e) => {
+      log("updater " + e.message);
+      if (mainWin && !mainWin.isDestroyed()) { mainWin.setProgressBar(-1); mainWin.setTitle("ReachGrid India"); }
+      const r = await dialog.showMessageBox({ type: "warning", buttons: ["Download installer", "Close"], message: manual ? "Could not check for updates" : "The update could not be downloaded", detail: `${e.message}\n\nYou can install the latest version by running the installer from the release page; your data is kept.` });
+      if (r.response === 0) shell.openExternal(RELEASES);
+    });
     updater.checkForUpdates();
   } catch (e) { log("updater init " + e.message); }
 }

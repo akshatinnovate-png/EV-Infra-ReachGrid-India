@@ -1,7 +1,7 @@
 {
   "name": "reachgrid-india",
   "productName": "ReachGrid India",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "EV charging access intelligence and investment optimisation for every state and district in India.",
   "main": "main.js",
   "author": "Team GoingAgain <akshat.innovate@gmail.com>",
@@ -37,7 +37,7 @@
       "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "build/icon.ico",
       "artifactName": "ReachGrid-India-Setup.${ext}",
-      "publisherName": "Team GoingAgain"
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": true,

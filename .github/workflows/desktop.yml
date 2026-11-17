@@ -148,5 +148,6 @@ jobs:
           "@
           $notes | Out-File notes.md -Encoding utf8
           gh release view $tag 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0 -and "${{ github.event_name }}" -eq "workflow_run") { Write-Host "Release $tag already published; a data refresh does not replace app files (users get data through in-app updates)."; exit 0 }
           if ($LASTEXITCODE -eq 0) { gh release upload $tag @files --clobber; gh release edit $tag --notes-file notes.md --latest }
           else { gh release create $tag @files --title "ReachGrid India $v" --notes-file notes.md --latest }
